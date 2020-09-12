@@ -1,0 +1,31 @@
+
+.devtab .info {
+cursor:pointer;
+width: 20px;
+transition: background 250ms ease-in-out;
+}
+
+.devtab .info:hover {
+background:gray;
+}
+
+.arrow {
+  box-sizing: border-box;
+  height: 16px;
+  width: 16px;
+  border-style: solid;
+  border-color: black;
+  border-width: 0px 2px 2px 0px;
+  transition: border-width 250ms ease-in-out;
+}
+.info:hover > .arrow {
+  border-bottom-width: 4px;
+  border-right-width: 4px;
+}
+.darrow {
+   transform: rotate(45deg);
+}
+.uarrow {
+   transform: rotate(225deg);
+}
+

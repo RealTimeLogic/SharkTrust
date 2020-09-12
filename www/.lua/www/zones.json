@@ -1,0 +1,41 @@
+{
+    "pages":
+    {
+        "." : {
+            "path" : "index.lsp",
+            "title" : "Available Devices",
+            "nologin" : true
+        },
+        "login" : {
+            "path" : "login.lsp",
+            "title" : "SharkTrust Login",
+            "nologin" : true
+        },
+
+        "manage" : {
+            "path" : "manage.lsp",
+            "title" : "Manage Devices"
+        },
+        "settings" : {
+            "path" : "settings.lsp",
+            "title" : "Settings"
+        },
+        "cgen" : {
+            "path" : "cgen.lsp",
+            "title" : "Generate C Code"
+        },
+        "recover" : {
+            "path" : "recover.lsp",
+            "title" : "Recover Account",
+            "nologin" : true
+        }
+    },
+
+    "menu": 
+    [
+        {"link":".", "name":"Devices", "visible": true},
+        {"link":"login", "name": "Login", "visible": true},
+        {"link": "manage","name": "Manage"},
+        {"link": "settings","name": "Settings"}
+    ]
+}

@@ -1,0 +1,825 @@
+
+local log -- function: see below
+local hio=ba.openio"home"
+local rw=require"rwfile"
+local fmt=string.format
+local sbyte=string.byte
+
+if (not hio:stat"cert" and not hio:mkdir"cert") or
+   (not hio:stat"cert/devices" and not hio:mkdir"cert/devices") then
+   error("Cannot create "..hio:realpath"cert/devices")
+end
+if not hio:stat"data" and not hio:mkdir"data" then
+   error("Cannot create "..hio:realpath"data")
+end
+
+if mako.daemon then -- If deployed
+   require"seed" -- seed sharkssl and rnd generators.
+end
+
+local cio = ba.mkio(hio,"cert/devices") -- Devices Certificate dir
+local dio = ba.mkio(hio,"data") -- Data directory for all JSON files
+
+-----------------------------------------------------------------------
+--                   File database management                        --
+-----------------------------------------------------------------------
+--  Functions for reading/writing the device certificates  --
+local function fmtDevCertKey(dkey) return fmt("%s.key",dkey) end
+local function fmtDevCert(dkey) return fmt("%s.cert",dkey) end
+-- Returns key,cert
+local function rDevCert(dkey)
+   return rw.file(cio,fmtDevCertKey(dkey)), rw.file(cio,fmtDevCert(dkey))
+end
+
+-- Writes key and cert
+local function wDevCert(dkey, key, cert)
+   local ok, err = rw.file(cio,fmtDevCertKey(dkey), key)
+   if ok then ok, err = rw.file(cio,fmtDevCert(dkey), cert) end
+   if not ok then log(true,"Cannot save certificate for %s: %s",dkey,err) end
+   return ok, err
+end
+--  Functions for working with JSON database structures  --
+local rZonesT,rcZonesT,wZonesT -- Read, read cached, or write the zones table.
+do
+   local cachedZT
+   wZonesT = function(tab) cachedZT=tab return rw.json(dio,"zones.json",tab) end
+   rZonesT = function() return rw.json(dio,"zones.json") end
+   if not rZonesT() then trace("Creating zones.json") wZonesT{} end
+   cachedZT=rZonesT()
+   rcZonesT = function() return cachedZT end
+end
+-- Read or write a zone (domain) table
+local function fmtZone(zkey) return fmt("z.%s.json",zkey) end
+-- zkey=64b-account-key
+local function rwZoneT(zkey,tab) return rw.json(dio,fmtZone(zkey),tab) end
+ -- Read or update zone wan table
+local function fmtWan(zkey) return fmt("w.%s.json",zkey) end
+local function rwWanT(zkey, tab) return rw.json(dio,fmtWan(zkey), tab) end
+local function updateWanT(zkey,dname,ip,newwan,oldwan)
+   local wanT=rwWanT(zkey) or {}
+   if oldwan and newwan ~= oldwan then
+      local t = wanT[oldwan]
+      if t then
+         t[dname]=nil
+         if not next(t) then wanT[oldwan]=nil end
+      end
+   end
+   local t = wanT[newwan] or {}
+   t[dname]=ip
+   wanT[newwan]=t
+   return rwWanT(zkey,wanT)
+end
+-- Read or write a device table.
+local function fmtDevice(dkey) return fmt("d.%s.json",dkey) end
+-- dkey=20b-device-key
+local function rwDeviceT(dkey,tab) return rw.json(dio,fmtDevice(dkey),tab) end
+-- Removes all files associated with one device: device-tab,cert-key,cert
+local function rmDevice(dkey)
+   dio:remove(fmtDevice(dkey))
+   cio:remove(fmtDevCertKey(dkey))
+   cio:remove(fmtDevCert(dkey))
+end
+
+-- End File database management 
+
+local conf=require"loadconf"
+local settingsT=conf.settings
+local ok,err=pcall(function()
+  assert(type(settingsT.ns1) == 'string' and
+         type(settingsT.ns2) == 'string' and
+         type(settingsT.dn) == 'string')
+end) 
+if not ok then
+   error"Invalid 'settings' table in mako.conf"
+end
+
+assert(type(conf.log.smtp.to=="string", "mako.conf missing log.smpt.to"))
+local email=conf.log.smtp.to
+
+settingsT.ipns1,settingsT.ipns2=
+   ba.socket.toip(settingsT.ns1),ba.socket.toip(settingsT.ns2)
+
+-- Fetch our own IP address and resolve domain name 'ns1' or 'ns2'
+-- (future proof)
+local hostname = (function()
+   local ip,s
+   while not s do
+      s=ba.socket.connect("google.com",80)
+   end
+   local ip,port,is6=s:sockname()
+   if is6 and ip:find("::ffff:",1,true) == 1 then
+      ip=ip:sub(8,-1)
+   end
+   s:close()
+   return ip == settingsT.ipns1 and settingsT.ns1 or settingsT.ns2
+end)()
+
+
+log=function(iserr,fmts,...)
+   local msg=fmt("SharkTrust: "..fmts,...)
+   tracep(false,iserr and 0 or 2,msg)
+   if mako.daemon then
+      local op = iserr and {flush=true,subject="SharkTrust Error"} or {ts=true}
+      mako.log(msg,op)
+   end
+   return nil, msg
+end
+
+do -- xssfilter
+   local escSyms= {
+      ['&']="&amp;",
+      ['<']="&lt;",
+      ['>']="&gt;",
+      ['"']="&quot;",
+      ["'"]="&#x27;"
+   }
+   local function escape(c) return escSyms[c] end
+   function app.xssfilter(x)
+      if type(x) == "string" then
+         return string.gsub(x,"[&<>\"'/]", escape)
+      end
+      local t={}
+      for k,v in pairs(x) do
+         t[k] = string.gsub(v,"[&<>\"'/]", escape)
+      end
+      return t
+   end
+end
+local function trimS(s) return s and s:gsub("^%s*(.-)%s*$", "%1") end
+function app.trim(x)
+   if x then
+      if type(x) == "string" then return trimS(x) end
+      local t={}
+      for k,v in pairs(x) do t[k]=trimS(v) end
+      return t
+   end
+end
+local xssfilter,trim=xssfilter,trim
+
+local realm=conf.realm -- for HA1 and auth management
+assert(type(realm) == "string", "Missing 'realm' in mako.conf")
+-- https://realtimelogic.com/ba/doc/en/lua/auth.html
+local function ha1(username,password)
+   return ba.crypto.hash"md5"(username)":"(realm)":"(password)(true,"hex")
+end
+
+
+local function peername(cmd)
+   local ip,port,is6=cmd:peername()
+   if not ip then return "?" end
+   if is6 and ip:find("::ffff:",1,true) == 1 then
+      ip=ip:sub(8,-1)
+   end
+   return ip
+end
+
+
+-- Execute command 'cmd' in /usr/sbin/ with 'args'
+local function execsbin(cmd,args)
+   cmd=fmt("/usr/sbin/%s %s",cmd,args)
+   local resp,ecode=ba.exec(cmd)
+   if ecode ~= 0 then
+      log(true,"exec err %d for %s",ecode,cmd)
+   end
+   return {cmd=cmd,resp=resp,ecode=ecode}
+end
+
+
+-- Returns /etc/bind/zones/[zname].db
+local function mkFullZname(zname)
+   return fmt("/etc/bind/zones/%s.db",zname)
+end
+
+
+-- /etc/bind/named.conf.local
+local namedConfFmt=[[
+zone "%s" {
+type master;
+allow-transfer {"none";};
+file "/etc/bind/zones/%s.db";
+};
+
+]]
+local function updateNamedConf(zonesT)
+   local fp=_G.io.open("/etc/bind/named.conf.local","w")
+   assert(fp, "'bind9' must be installed")
+   for zname in pairs(zonesT or rcZonesT()) do
+      fp:write(fmt(namedConfFmt,zname,zname))
+   end
+   fp:close()
+end
+
+--  /etc/bind/zones/<name>.db
+local zonefmt=[[
+$TTL 900
+@ IN SOA ns1.%s. admin.%s. (
+%d ; Serial
+3h ; Refresh
+1h ; Retry
+1w ; Expire
+900 ) ; Negative TTL cache
+; name servers - NS records
+     IN      NS      ns1.%s.
+     IN      NS      ns2.%s.
+; name servers - A records
+ns1.%s.   86400 IN      A       %s
+ns2.%s.   86400 IN      A       %s
+; DNS root domain
+%s. 86400 IN A %s
+%s. 86400 IN A %s
+]]
+-- Creates/overwrites /etc/bind/zones/[zname].db
+local function bindzonedb(zkey, zname, acmeRecT)
+   local resp={}
+   local fp=_G.io.open(mkFullZname(zname),"w")
+   fp:write(fmt(zonefmt,
+                zname,zname, -- SOA
+                os.time(), -- Serial
+                zname, -- NS record 1
+                zname, -- NS record 2
+                zname, settingsT.ipns1, -- NS A record one
+                zname, settingsT.ipns2, -- NS A record two
+                zname, settingsT.ipns1,
+                zname, settingsT.ipns2))
+   local function emitRec(name,class,type,data)
+      fp:write(fmt("%s %s %s %s\n",name,class,type,data))
+   end
+   local function laddr(devT) emitRec(devT.name,"IN","A",devT.ip) end
+   local function waddr(devT) emitRec(devT.name,"IN","A",devT.wan) end
+   -- Ref-RR: Set device A record to local IP, WAN IP, or both (Round Robin)
+   local actionT={
+      ["local"]=laddr,
+      wan=waddr,
+      both=function(devT) laddr(devT) waddr(devT) end
+   }
+   for dname,dkey in pairs(rwZoneT(zkey).devices) do
+      local devT=rwDeviceT(dkey)
+      if devT then
+         actionT[devT.dns](devT)
+      else
+         log(TRUE, "Corrupt DB, missing %s for %s", fmtDevice(dkey), dname)
+      end
+   end
+   if acmeRecT then emitRec(acmeRecT.name, "IN", "TXT", acmeRecT.data) end
+   fp:close()
+end
+
+
+-- creates/renews and loads all certs for the registered zones
+-- (domains), but not for the devices.
+local function acmebotSet(delay)
+   local function action()
+      local zList={settingsT.dn,hostname}
+      for zname in pairs(rcZonesT()) do table.insert(zList,zname) end
+      local a=settingsT.acme
+      local op={
+         cleanup=true,
+         production=a.production,
+         rsa=a.rsa,
+         acceptterms=true
+      }
+      local ab=require"acmebot"
+      ab.configure(email,zList,op)
+      ab.start()
+   end
+   if delay then
+      -- Give 'bind' time to settle after running 'rndc reconfig'.
+      ba.timer(action):set(3000,true)
+   else
+      action()
+   end
+end
+
+
+local function createZone(zname, uname, pwd)
+   local ha1=ha1(uname, pwd)
+   local zonesT = rcZonesT() -- key=name, val='64b-account-key'
+   if zonesT[zname] then return nil, "already exists" end
+   -- Build zones table, but set 64b-account-key as key and zname as value.
+   local kZonesT={}
+   for zname,zkey in pairs(zonesT) do kZonesT[zkey]=zname end
+   -- Find new unique 64b-account-key
+   local zkey
+   while true do
+      zkey=ba.rndbs(32):gsub(".",function(x) return fmt("%02X",sbyte(x)) end)
+      if not kZonesT[zkey] then break end
+   end
+   -- Store new zone and save
+   rwZoneT(zkey, {uname=uname,ha1=ha1,zname=zname,
+              rtime=os.time(),devices={},certs={}})
+   zonesT[zname]=zkey
+   wZonesT(zonesT)
+   bindzonedb(zkey,zname)
+   updateNamedConf(zonesT)
+   execsbin("rndc","reconfig")
+   acmebotSet(true)
+   log(false, "New zone %s : %s", zname, uname)
+   return zkey
+end
+
+
+-- User's from mako.conf : System admin users
+function app.checkAdminCredentials(uname, pwd)
+   local p=conf.users[uname]
+   if type(p) == 'table' then return p[1] == ha1(uname or "",pwd or "") end
+   return p == pwd -- cleartext
+end
+
+-- Login for the zone admin, one admin per zone.
+-- Note: System admins can also log in to any zone
+function app.checkCredentials(zoneT, uname, pwd)
+   return zoneT and zoneT.ha1 == ha1(uname or "",pwd or "") or
+      app.checkAdminCredentials(uname, pwd) -- Check system if not zone adm.
+end
+
+
+
+
+-- Update the 'bind' database file containing all zones and tell
+-- 'bind' to reload DB.
+local function updateZone(zkey, zname, acmeRecT)
+   bindzonedb(zkey, zname, acmeRecT)
+   execsbin("rndc","reload "..zname)
+end
+
+-- Deletes all data related to zone
+local function deleteZone(zname)
+   local resp={}
+   local zonesT=rcZonesT()
+   local zkey=zonesT[zname]
+   if not zkey then
+      return log(true, "Terminating zone warn: cannot find %s",zname)
+   end
+   zonesT[zname]=nil
+   wZonesT(zonesT)
+   local zoneT=rwZoneT(zkey)
+   if zoneT then
+      log(false, "Terminating zone %s : %s", zname, zoneT.uname)
+      for _,dkey in pairs(zoneT.devices) do rmDevice(dkey) end
+   else
+      log(true, "Terminating zone warn: missing %s for %s",fmtZone(zkey),zname)
+   end
+   dio:remove(fmtZone(zkey)) -- Delete zone table
+   dio:remove(fmtWan(zkey)) -- Delete zone wan table
+   os.remove(mkFullZname(zname)) -- Delete bind's zone config file
+   updateNamedConf(zonesT)
+   execsbin("rndc","reconfig")
+   acmebotSet() -- Load zone (domain) certs minus the one we deleted
+end
+
+local function deleteDevice(zname, zkey, dname, dkey)
+   local zoneT=rwZoneT(zkey)
+   local wansT=rwWanT(zkey)
+   local devT=rwDeviceT(dkey)
+   if zoneT and wansT and devT then
+      local wanT=wansT[devT.wan]
+      if wanT then
+         wanT[dname]=nil
+         zoneT.devices[dname]=nil
+         zoneT.certs[dname]=nil
+         rwZoneT(zkey,zoneT)
+         rwWanT(zkey,wansT)
+         rmDevice(dkey)
+         updateZone(zkey, zname)
+         return true
+      end
+   end
+   error"deleteDevice: not found"
+end
+
+-----------------------------------------------------------------------
+----             Device Certificate Management                     ----
+-----------------------------------------------------------------------
+
+local priv=require"acmebot".priv
+local time2renew=priv.time2renew
+local jfile=priv.jfile -- read JSON files from 'cert/' dir
+local certQueue={}
+
+-- Returns ASN.1 UTC time
+-- https://www.obj-sys.com/asn1tutorial/node15.html
+local function extractUTCTime(cert)
+   local tzto
+   pcall(function()
+            tzto=ba.parsecert(ba.b64decode(
+               cert:match".-BEGIN.-\n%s*(.-)\n%s*%-%-")).tzto
+         end)
+   if not tzto then
+      log(true, "UTCTime parse error for:\n%s",cert)
+      return 0
+   end
+   return tzto -- String
+end
+
+-- Converts UTC time to UNIX time
+local function convertUTCTime(tm)
+   if type(tm) == "string" then
+      local y,m,d,h=tm:match"(%d%d)(%d%d)(%d%d)(%d%d)(%d%d)(%d%d)Z"
+      if y then
+         return os.time{year=y+2000,month=m,day=d,hour=h}
+      end
+   end
+end
+
+local function updateCert(zkey, zname, dkey, dname, doneCB)
+   local fullName=fmt("%s.%s",dname,zname)
+   -- If added by cmdRegister() and 'cert auto updater' kicks in
+   if certQueue[fullName] then
+      doneCB(false) -- Return false; thus delaying next update.
+      return
+   end
+   certQueue[fullName] = true
+
+   -- The buffered zoneT used by the 'cert auto updater' may not be
+   -- up-to-date if cmdRegister() was run so let's do a double check.
+   local _,cert=rDevCert(dkey)
+   if cert and not time2renew(extractUTCTime(cert)) then
+      doneCB(true) -- No update needed.
+      return
+   end
+
+   local function setDNS(dnsRecord, dnsAuth, rspCB)
+      updateZone(zkey,zname,{name=dnsRecord..".",data=dnsAuth})
+      ba.timer(function() rspCB(true) end):set(120000, true)
+   end
+   local function clearDNS(rspCB) rspCB(true) end -- Cleared next time on upd.
+   local a=settingsT.acme
+   local op={
+      acceptterms=true,
+      production=a.production,
+      rsa=a.rsa,
+      ch={set=setDNS,remove=clearDNS}
+   }
+   local function onCert(certKey,cert)
+      certQueue[fullName] = nil -- Remove and release lock
+      if certKey then
+         local zoneT=rwZoneT(zkey)
+         if zoneT.devices[dname] then
+            wDevCert(dkey,certKey,cert)
+            zoneT.certs[dname]=extractUTCTime(cert)
+            rwZoneT(zkey, zoneT)
+         else
+            log(false, "Discarding certificate for  '%s': %s",fullName,
+             "device removed.")
+         end
+         doneCB(true)
+      else
+         log(true, "Certificate request error '%s': %s",fullName, cert)
+         doneCB(false)
+      end
+   end
+   return require"acme".cert(jfile"account", fullName, onCert, op)
+   
+end
+
+do --- cert auto updater
+   local tickCntr = 0
+   local busy=false
+   local certUpdaterCO
+   local function certUpdater()
+      while true do
+         for zname, zkey in pairs(rZonesT()) do -- Not using cached version
+            local zoneT=rwZoneT(zkey)
+            if zoneT then
+               for dname,dkey in pairs(zoneT.devices) do
+                  local tm=zoneT.certs[dname]
+                  local devT=rwDeviceT(dkey)
+                  if devT and devT.atime < (os.time() - 7776000) then
+                     -- Time: 90 days: 60*60*24*90
+                     log(false,"Auto removing %s.%s : %s",dname,zname,devT.ip)
+                     deleteDevice(zname, zkey, dname, dkey)
+                  else
+                     if type(tm) ~= "string" or time2renew(tm) then
+                        local function onDone(ok)
+                           tickCntr = ok and 1 or 100
+                           busy=false
+                        end
+                        busy=true
+                        updateCert(zkey, zname, dkey, dname, onDone)
+                     end
+                  end
+                  coroutine.yield()
+               end
+            end
+            coroutine.yield()
+         end
+         coroutine.yield()
+      end
+   end
+   certUpdaterCO = coroutine.create(certUpdater)
+   local function intvTimer()
+      if not busy then
+         if tickCntr > 1 then
+            tickCntr=tickCntr-1
+         else
+            local ok,err=coroutine.resume(certUpdaterCO)
+            if not ok then
+               log(true, "Restart Server: certUpdater err: %s",err)
+               return false
+            end
+         end
+      end
+      collectgarbage("step", 10)
+      return true
+   end
+   local intvT=ba.timer(intvTimer)
+   intvT:set(5000) -- 5 sec.
+   function onunload() intvT:cancel() end
+end  --- End cert auto updater
+
+
+-----------------------------------------------------------------------
+----     Manage all client commands received via '/command.lsp'    ----
+-----------------------------------------------------------------------
+
+local RC = { -- Response Codes
+   Success=0,
+   Forbidden=1,
+   Unknown=2,
+   Processing=3,
+   ServerError=4,
+   ClientError=5
+}
+
+
+local sn2h=ba.socket.n2h
+local sh2n=ba.socket.h2n
+local schar=string.char
+
+-- Prepare and return binary response header
+local function preprsp(cmd,code)
+   code = code or RC.Success
+   return ba.socket.req2sock(cmd),sh2n(2,0xFF55)..schar(code)..schar(0)
+end
+
+-- Send error response and return nil,ecode
+local function errorRsp(cmd,code,emsg)
+   if emsg then
+      log(true,"Device @ %s: ecode %d\t%s",peername(cmd),code,emsg)
+   end
+   local sock,data=preprsp(cmd,code)
+   sock:write(data)
+   sock:close()
+   return nil,code
+end
+
+-- Ref-RR: Extract optional DNS A record type, which can be local
+-- (default), WAN IP Address, or both. WAN and both can be used for
+-- device with router pinhole (port forward).
+local function getDnsType(hT)
+   local dns=hT["X-Dns"]
+   if dns ~= "wan" and dns ~= "both" then dns="local" end
+   return dns
+end
+
+
+local function lookupDev(cmd,hT)
+   local dkey=hT["X-Dev"]
+   if not dkey then return errorRsp(cmd,RC.ClientError, "No X-Dev") end
+   local devT = rwDeviceT(dkey)
+   if not devT then return errorRsp(cmd,RC.Unknown) end
+   return dkey, devT
+end
+
+local function getAndCheckIp(cmd,hT)
+   local ip=hT["X-IpAddress"]
+   if not ip then return errorRsp(cmd,RC.ClientError, "No X-IpAddress") end
+   local a={ip:match"^(%d+)%.(%d+)%.(%d+)%.(%d+)$"}
+   for i=1,4 do a[i]=tonumber(a[i]) end
+   for i=1,4 do
+      local n=a[i]
+      if type(n) ~= "number" or n < 0 or n > 255 then
+         return errorRsp(cmd,RC.ClientError, "Invalid IP addr: "..ip)
+      end
+   end
+   return ip
+end
+
+
+local function setIpAddress(cmd,hT,zkey,zoneT)
+   local dkey,devT = lookupDev(cmd,hT)
+   if not dkey then return end
+   local ip=getAndCheckIp(cmd,hT)
+   if not ip then return end
+   local wan=peername(cmd)
+   devT.atime=os.time()
+   local dtype=getDnsType(hT)
+   if devT.ip~=ip or devT.wan~=wan or devT.dns~=dtype then
+      updateWanT(zkey,devT.name,ip,wan,devT.wan) -- Update zone wan table
+      devT.ip=ip
+      devT.wan=wan
+      devT.dns=dtype
+      rwDeviceT(dkey,devT) -- Save devT changes
+      updateZone(zkey, zoneT.zname)  -- Update bind
+   else
+      rwDeviceT(dkey,devT) -- Save updated devT.atime
+   end
+   return dkey,devT.name
+end
+
+local function cmdRegister(cmd,hT,zkey,zoneT)
+   local ip=getAndCheckIp(cmd,hT)
+   if not ip then return end
+   local name=hT["X-Name"] or "device"
+   name=name:lower()
+   local ix=name:find(".",1,true)
+   if ix then
+      if name:sub(ix+1) ~= zoneT.zname then
+         return errorRsp(cmd,RC.ClientError,"zone name does not match zone key")
+      end
+      name = name:sub(1,ix-1)
+   end
+   -- Make sure sub-domain name is unique by checking name conflict in nameT
+   local nameT,ix,orgn=zoneT.devices,0,name
+   while nameT[name] do ix=ix+1 name=fmt("%s%d",orgn,ix) end
+   -- Create a unique device key (X-Dev)
+   local dkey
+   while true do
+      dkey=ba.rndbs(10):gsub(".",function(x) return fmt("%02X",sbyte(x)) end)
+      if not dio:stat(fmtDevice(dkey)) then break end
+   end
+   local wan=peername(cmd)
+   local info=hT["X-Info"]
+   if info and #info > 40 then info=info:sub(1,40) end
+   local devT={ -- New
+      atime=os.time(),
+      dns=getDnsType(hT),
+      info=info or "",
+      ip=ip,
+      name=name,
+      wan=wan,
+   }
+   zoneT.devices[name]=dkey -- Add new
+   zoneT.certs[name]=0 -- Set expired
+   rwZoneT(zkey,zoneT) -- Insert new device in zone table
+   updateWanT(zkey,name,ip,wan) -- Insert new device in zone wan table
+   rwDeviceT(dkey, devT) -- Save new device
+   updateZone(zkey,zoneT.zname) -- Update bind
+   updateCert(zkey, zoneT.zname, dkey, name, function() end)
+   local sock,data=preprsp(cmd)
+   sock:write(data..dkey..sh2n(2,#name)..name)
+   sock:close()
+end
+
+
+local function cmdSetIpAddress(cmd,hT,zkey,zoneT)
+   if setIpAddress(cmd,hT,zkey,zoneT) then
+      local sock,data=preprsp(cmd)
+      sock:write(data..sh2n(2,#dn)..dn)
+      sock:close()
+   end
+end
+
+local function cmdGetCertificate(cmd,hT,zkey,zoneT)
+   local ct=hT["X-CertType"]
+   if not ct then return errorRsp(cmd,RC.ClientError,"No X-CertType") end
+   local dkey,dname=setIpAddress(cmd,hT,zkey,zoneT)
+   if not dkey then return end
+   local key,cert=rDevCert(dkey)
+   if not key then return errorRsp(cmd,RC.Processing) end
+   local secsLeft=(convertUTCTime(zoneT.certs[dname]) or os.time()) - os.time()
+   local sock,data=preprsp(cmd)
+   if ct == "X509" then
+      sock:write(data..sh2n(4,secsLeft)..sh2n(2,#cert)..cert..sh2n(2,#key)..key)
+   else
+      local cert,err = ba.create.sharkcert(cert,key)
+      if not cert then
+         log(true,"Cannot create sharkcert for %s: %s",dkey,err)
+         errorRsp(cmd,RC.ServerError)
+      end
+      local certdata = cert:data()
+      sock:write(data..sh2n(4,secsLeft)..sh2n(2,#certdata)..certdata)
+   end
+   sock:close()
+end
+
+
+local function cmdGetWAN(cmd)
+   local peer = peername(cmd)
+   local sock,data=preprsp(cmd)
+   sock:write(data..sh2n(2,#peer)..peer)
+   sock:close()
+end
+
+
+local function cmdGetDN(cmd,hT,zkey,zoneT)
+   local dkey, devT = lookupDev(cmd,hT)
+   if not dkey then return end
+   local dn=fmt("%s.%s",devT.name,zoneT.zname)
+   local sock,data=preprsp(cmd)
+   sock:write(data..sh2n(2,#dn)..dn)
+   sock:close()
+end
+
+
+-- All commands (functions)
+local commandT={
+   Register=cmdRegister,
+   GetCertificate=cmdGetCertificate,
+   SetIpAddress=cmdSetIpAddress,
+   GetWAN=cmdGetWAN,
+   GetDN=cmdGetDN,
+}
+
+-- Find and execute client command
+local function command(cmd)
+   local hT=xssfilter(trim(cmd:header()))
+   local zkey = hT["X-Key"]
+   if not zkey then -- Not a SharkTrust client
+      return cmd:senderror(404)
+   end
+   if hT["X-Response"]=="HTTP-BIN" then
+      cmd:setheader("Content-Type", "application/octet-stream")
+      cmd:setstatus(202)
+      cmd:flush()
+   end
+   -- Client must use a secure connection
+   if not cmd:issecure() then return errorRsp(cmd,RC.ClientError) end
+   local zoneT = rwZoneT(zkey)
+   if not zoneT then return errorRsp(cmd,RC.Forbidden) end
+   local c=commandT[hT["X-Command"]]
+   if not c then return errorRsp(cmd,RC.ClientError,"Unknown X-Command") end
+   c(cmd,hT,zkey,zoneT)
+end
+
+-- The LSP page "/command.lsp" calls app.command
+local function msgh(emsg) log(true,"%s",debug.traceback(emsg)) return emsg end
+function app.command(cmd)
+   local ok, err = xpcall(command,msgh,cmd) -- trap any Lua error
+   if not ok then errorRsp(cmd,RC.ServerError,err) end
+end
+
+-----------------------------------------------------------------------
+----- END: Code for managing client commands sent to /command.lsp -----
+-----------------------------------------------------------------------
+
+assert(string.find(ba.exec"whoami", "root"),
+       "Server must run as user root!!!")
+
+assert(mako.port == 80 and mako.sslport == 443,
+       "Server must listen on default ports 80 and 443!!!")
+
+local function delayedLoad()
+   local xio=ba.openio"disk"
+   if (not xio:stat"/etc/bind/zones/" and not xio:mkdir"/etc/bind/zones/") then
+      error"Cannot access /etc/bind/zones/"
+   end
+   ba.exec"/etc/init.d/bind9 stop"
+   -- rebuild all 'bind' settings
+   for zname, zkey in pairs(rcZonesT()) do
+      bindzonedb(zkey,zname)
+   end
+   updateNamedConf()
+   ba.sleep(1000)
+   ba.exec"/etc/init.d/bind9 start"
+   acmebotSet(true) -- Start
+   log(false, "Ready %s", os.date())
+end
+ba.thread.run(delayedLoad)
+
+-- Export:
+app.ha1=ha1
+app.convertUTCTime=convertUTCTime
+app.createZone = createZone
+app.deleteDevice=deleteDevice
+app.deleteZone = deleteZone
+app.log = log
+app.peername = peername
+app.rcZonesT = rcZonesT
+app.rwDeviceT = rwDeviceT
+app.rwWanT = rwWanT
+app.rwZoneT = rwZoneT
+app.settingsT = settingsT
+
+
+do
+   local aeskey=ba.aeskey(32)
+   function app.aesencode(data)
+      return ba.aesencode(aeskey,data)
+   end
+   function app.aesdecode(data)
+      return ba.aesdecode(aeskey,data)
+   end
+end
+
+-----------------------------------------------------------------------
+-----              Content Management System (CMS)                -----
+-----------------------------------------------------------------------
+
+local serviceName = settingsT.dn
+local parseLspPage,templatePage=io:dofile(".lua/www/engine.lua",app)
+local zonesDir=io:dofile(".lua/www/zones.lua",app)(parseLspPage,templatePage)
+local adminDir=io:dofile(".lua/www/admin.lua",app)(parseLspPage,templatePage)
+local methods={GET=true,POST=true} -- no other
+local function cmsfunc(_ENV,relpath)
+   if not methods[request:method()] then return false end -- Delegate
+   if request:header"Authorization"  then return false end -- Delegate basic/dig
+   local host = request:header"host"
+   if not host then response:senderror(404) return end
+   if not request:issecure() then response:sendredirect("https://"..host,true) end
+   if host == serviceName then return adminDir(_ENV,relpath) end
+   return zonesDir(_ENV,relpath, host, rcZonesT()[host])
+end
+local cmsdir=ba.create.dir()
+cmsdir:setfunc(cmsfunc)
+dir:insert(cmsdir, true) -- Exec cmsdir:cmsfunc for all non found assets

@@ -1,0 +1,34 @@
+{
+    "pages":
+    {
+        "." : {
+            "path" : "index.lsp",
+            "title" : "SharkTrust",
+            "nologin" : true
+        },
+        "validate" : {
+            "path" : "validate.lsp",
+            "title" : "Validate",
+            "nologin" : true
+        },
+        "login" : {
+            "path" : "login.lsp",
+            "title" : "SharkTrust Login",
+            "nologin" : true
+        },
+        "manage" : {
+            "path" : "manage.lsp",
+            "title" : "Manage Zones"
+        },
+        "zone" : {
+            "path" : "zone.lsp",
+            "title" : "Manage Zone"
+        }
+    },
+
+    "menu": 
+    [
+        {"link":".", "name":"Register", "visible": true},
+        {"link": "manage","name": "Manage"}
+    ]
+}
