@@ -9,8 +9,8 @@ As an initial test and to get an understanding of how SharkTrust
 works. Download the ready to use demo server with integrated
 SharkTrust client. The pre-compiled example bundles the SharkTrust
 client and the secure
-[Minnow Server](https://realtimelogic.com/products/sharkssl/minnow-server/)
-. The certificate and private key are stored in memory only. The
+[Minnow Server](https://realtimelogic.com/products/sharkssl/minnow-server/).
+The certificate and private key are stored in memory only. The
 private Zone Key embedded in the software uses the obfuscation
 technique explained later. The ready to use Windows
 executable simulates how your end users could use SharkTrust with

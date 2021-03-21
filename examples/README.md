@@ -8,8 +8,8 @@ The following instructions are for using our demo portal:
 4. Click Services -> My Domains -> Manage Domain
 5. Click Management Tools -> Nameservers
 6. Set Nameserver 1 to ns1.realtimelogic.com.com and Nameserver 2to ns2.realtimelogic.com.com
-7. Click Change Nameservers, and **wait one hour before thenext step**
-8. Navigate to Real Time Logic's SharkTrust demo portal:[https://sharktrust.realtimelogic.com/](https://sharktrust.realtimelogic.com/)
+7. Click Change Nameservers, and **wait one hour before the next step**
+8. Navigate to Real Time Logic's SharkTrust demo portal: [https://sharktrust.realtimelogic.com/](https://sharktrust.realtimelogic.com/)
 9. Enter the domain name registered at freenome, and sign up for the portal
 10. Follow the instructions provided by the SharkTrust demo portal
 11. When you receive the email with the Zone Key, copy the key, and paste the key into SharkTrust-Client.c **[1]**
