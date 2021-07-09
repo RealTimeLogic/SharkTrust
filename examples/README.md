@@ -7,7 +7,7 @@ The following instructions are for using our demo portal:
 3. Register a free domain name; Any name will do
 4. Click Services -> My Domains -> Manage Domain
 5. Click Management Tools -> Nameservers
-6. Set Nameserver 1 to ns1.realtimelogic.com and Nameserver 2to ns2.realtimelogic.com
+6. Set Nameserver 1 to ns1.realtimelogic.com and Nameserver 2 to ns2.realtimelogic.com
 7. Click Change Nameservers, and **wait one hour before the next step**
 8. Navigate to Real Time Logic's SharkTrust demo portal: [https://sharktrust.realtimelogic.com/](https://sharktrust.realtimelogic.com/)
 9. Enter the domain name registered at freenome, and sign up for the portal
