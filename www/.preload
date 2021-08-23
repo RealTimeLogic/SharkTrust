@@ -278,7 +278,7 @@ local function acmebotSet(delay)
          rsa=a.rsa,
          acceptterms=true
       }
-      local ab=require"acmebot"
+      local ab=require"acme/bot"
       ab.configure(email,zList,op)
       ab.start()
    end
@@ -391,7 +391,7 @@ end
 ----             Device Certificate Management                     ----
 -----------------------------------------------------------------------
 
-local priv=require"acmebot".priv
+local priv=require"acme/bot".priv
 local time2renew=priv.time2renew
 local jfile=priv.jfile -- read JSON files from 'cert/' dir
 local certQueue={}
