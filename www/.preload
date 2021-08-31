@@ -468,7 +468,7 @@ local function updateCert(zkey, zname, dkey, dname, doneCB)
          doneCB(false)
       end
    end
-   return require"acme".cert(jfile"account", fullName, onCert, op)
+   return require"acme/engine".cert(jfile"account", fullName, onCert, op)
    
 end
 
