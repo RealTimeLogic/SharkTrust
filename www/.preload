@@ -415,7 +415,7 @@ end
 local function convertUTCTime(tm)
    if type(tm) == "string" then
       local exptime = ba.parsecerttime(tm)
-      if exptime ~= 0 then return exptime end
+      if exptime ~= 0 then return ba.datetime(exptime) end
    end
 end
 
