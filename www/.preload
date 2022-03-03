@@ -427,6 +427,7 @@ local function updateCert(zkey, zname, dkey, dname, doneCB)
       return
    end
    certQueue[fullName] = true
+   log(false, "Updating certificate %s",fullName)
 
    -- The buffered zoneT used by the 'cert auto updater' may not be
    -- up-to-date if cmdRegister() was run so let's do a double check.
@@ -471,7 +472,7 @@ local function updateCert(zkey, zname, dkey, dname, doneCB)
 end
 
 do --- cert auto updater
-   local tickCntr = 0
+    local tickCntr = 0
    local busy=false
    local certUpdaterCO
    local function certUpdater()

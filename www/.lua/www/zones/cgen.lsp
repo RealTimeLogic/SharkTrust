@@ -81,7 +81,12 @@ The following machine generated code must be used as follows:
 #define uint8_t unsigned char
 #endif
 
+#ifdef __GNUC__
 #pragma GCC diagnostic ignored "-Wsequence-point"
+#endif
+#ifdef __ICCARM__
+#pragma diag_suppress=Pa079
+#endif
 
 static const uint8_t zkASCII[] = {'0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'};
 
