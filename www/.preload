@@ -560,8 +560,10 @@ local function errorRsp(cmd,code,emsg)
       log(true,"Device @ %s: ecode %d\t%s",peername(cmd),code,emsg)
    end
    local sock,data=preprsp(cmd,code)
-   sock:write(data)
-   sock:close()
+   if sock then
+      sock:write(data)
+      sock:close()
+   end
    return nil,code
 end
 
