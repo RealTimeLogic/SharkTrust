@@ -633,6 +633,9 @@ local function cmdRegister(cmd,hT,zkey,zoneT)
       end
       name = name:sub(1,ix-1)
    end
+   if name:find"[^%a%d-]" or name:find"^-" or name:find"-$" then
+      return errorRsp(cmd,RC.ClientError,"Invalid sub-domain name")
+   end
    -- Make sure sub-domain name is unique by checking name conflict in nameT
    local nameT,ix,orgn=zoneT.devices,0,name
    while nameT[name] do ix=ix+1 name=fmt("%s%d",orgn,ix) end
