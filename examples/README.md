@@ -1,5 +1,7 @@
 ## C Source Code Examples
 
+<!--- Online test server is no longer online
+
 The following instructions are for using our demo portal:
 
 1. Open SharkTrust-Client.c in an editor and study the code
@@ -47,6 +49,7 @@ have compiled the source code with a valid zone key. The example
 connects to the online SharkTrust demo portal and uses commands
 as specified in the SharkTrust Specification.
 
+-->
 
 ## Security and Private Data
 

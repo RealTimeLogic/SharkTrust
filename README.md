@@ -3,6 +3,9 @@ Automatic SSL Certificate Management for Intranet Web Servers
 
 See the [SharkTrust home page](https://realtimelogic.com/services/SharkTrust/) for details.
 
+
+<!--- Online test server is no longer online
+
 ## Initial Test
 
 As an initial test and to get an understanding of how SharkTrust
@@ -102,6 +105,8 @@ Your server URL: https://RTL-LAB.equip.run
 Test DNS as follows: ping RTL-LAB.equip.run
 ```
 **Figure 2: Re-starting the SharkTrust clientwhen the client is registered and when the online portal has prepared a certificate**
+
+-->
 
 ## Integrating the C Code in Your Server
 
