@@ -2,14 +2,20 @@
 
   SharkTrust Example Program (using obfuscated zone key)
 
-  Prepare example as follows:
+  Option 1: Use the included zone key for the domain equip.run
+    1: Compile the code (Details below)
 
-    1: Navigate to your SharkTrust zone https://your-domain/login (*)
-    2: Login using your credentials
-    3: Navigate to https://your-domain/cgen
-    4: Download the generated header file and place generated file in
+  Option 2: Use your own domain:
+   Prepare the example as follows using your own domain:
+
+    1: Install SharkTrust or use the test domain
+       https://sharktrust.realtimelogic.com/ and register your-domain
+    2: Navigate to your SharkTrust zone https://your-domain/login (*)
+    3: Login using your credentials
+    4: Navigate to https://your-domain/cgen
+    5: Download the generated header file and place generated file in
        this directory
-    5: Compile (see below)
+    6: Compile (Details below)
 
     (*) 'your-domain' is the zone name you registered with the
         SharkTrust service.
@@ -24,9 +30,6 @@
   template when porting to your TLS stack of choice. SharkSSL users
   should instead use the SharkTrust example bundled with the SharkSSL
   IDE.
-
-  The example, by default, connects to the SharkTrust demo instance
-  operated by Real Time Logic: https://sharktrust.realtimelogic.com/
 
   The example is designed to be minimal and uses virtually no error
   checking. The example expects that it can save the device-key (X-Dev),

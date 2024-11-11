@@ -1,6 +1,50 @@
 ## C Source Code Examples
 
-<!--- Online test server is no longer online
+
+# SharkTrust Client Examples
+
+This directory includes two ready-to-compile and run test programs. These programs register with a SharkTrust portal, wait for the certificate to be generated, and save the Let's Encrypt signed certificate and private key to the directory where the examples are running.
+
+## Step 1: Compile the Program
+
+To compile the `SharkTrust-Client` program, run the following command:
+
+```bash
+gcc -o SharkTrust-Client SharkTrust-Client-Obfuscated-Key.c -lssl -lcrypto
+```
+
+## Step 2: Run the Program
+Execute the compiled program:
+
+```bash
+./SharkTrust-Client
+```
+You should see output similar to the following:
+
+```bash
+Local IP Addr: 192.168.1.100, hostname: NUC
+Sending Command: Register
+SharkTrust response 0 : Success
+Our new device Key (X-Dev) BED9E41A53647B58A5F1
+Sending Command: GetCertificate
+SharkTrust response 3 : Processing
+Sleeping for 70 seconds ......................................................................
+Sending Command: GetCertificate
+SharkTrust response 3 : Processing
+Sleeping for 70 seconds ......................................................................
+Sending Command: GetCertificate
+SharkTrust response 0 : Success
+Certificate expires in 89 days
+Saving certificate; length 2873
+Saving certificate's private key; length 47
+Sending Command: GetDN
+SharkTrust response 0 : Success
+```
+You can now load the generated certificate and private key into your web server.
+## Step 3: Study the code
+Carefully review the comments in both SharkTrust-Client-Obfuscated-Key.c and SharkTrust-Client.c for further details.
+
+## The SharkTrust Demo Portal
 
 The following instructions are for using our demo portal:
 
@@ -49,7 +93,6 @@ have compiled the source code with a valid zone key. The example
 connects to the online SharkTrust demo portal and uses commands
 as specified in the SharkTrust Specification.
 
--->
 
 ## Security and Private Data
 
