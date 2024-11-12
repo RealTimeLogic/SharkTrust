@@ -1,9 +1,16 @@
-
 local log -- function: see below
 local hio=ba.openio"home"
 local rw=require"rwfile"
 local fmt=string.format
 local sbyte=string.byte
+
+if ba.tpm then
+   local eng=require"acme/engine"
+   assert(eng.tpm, "You must upgrade mako.zip")
+   assert(false==eng.tpm(), "You must set acmetpm=false in mako.conf")
+end
+
+
 
 if (not hio:stat"cert" and not hio:mkdir"cert") or
    (not hio:stat"cert/devices" and not hio:mkdir"cert/devices") then
@@ -98,6 +105,7 @@ local email=conf.log.smtp.to
 
 settingsT.ipns1,settingsT.ipns2=
    ba.socket.toip(settingsT.ns1),ba.socket.toip(settingsT.ns2)
+assert(settingsT.ipns1 and settingsT.ipns2, "Cannot resolve IP address")
 
 -- Fetch our own IP address and resolve domain name 'ns1' or 'ns2'
 -- (future proof)
@@ -690,12 +698,14 @@ local function cmdGetCertificate(cmd,hT,zkey,zoneT)
       sock:write(data..sh2n(4,secsLeft)..sh2n(2,#cert)..cert..sh2n(2,#key)..key)
    else
       local cert,err = ba.create.sharkcert(cert,key)
-      if not cert then
+      if cert then
+         local certdata = cert:data()
+         sock:write(data..sh2n(4,secsLeft)..sh2n(2,#certdata)..certdata)
+      else
          log(true,"Cannot create sharkcert for %s: %s",dkey,err)
+         trace(cert,key)
          errorRsp(cmd,RC.ServerError)
       end
-      local certdata = cert:data()
-      sock:write(data..sh2n(4,secsLeft)..sh2n(2,#certdata)..certdata)
    end
    sock:close()
 end
