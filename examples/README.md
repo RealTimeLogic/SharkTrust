@@ -44,6 +44,52 @@ You can now load the generated certificate and private key into your web server.
 ## Step 3: Study the code
 Carefully review the comments in both SharkTrust-Client-Obfuscated-Key.c and SharkTrust-Client.c for further details.
 
+## Ready-to-Run Minnow Web Server Example
+
+The SharkTrust client examples above download and save the private key and certificate from the SharkTrust portal, but do not embed a web server within the SharkTrust client example code. However, the [SharkSSL GitHub repository](https://github.com/RealTimeLogic/SharkSSL) includes an example that combines the SharkTrust client with the [Minnow Web Server](https://realtimelogic.com/products/sharkssl/minnow-server/), automatically installing the certificate and private key in the web server.
+
+### Running the Example
+
+To run the SharkTrust Minnow Server example, follow these steps:
+
+```bash
+git clone https://github.com/RealTimeLogic/SharkSSL.git
+cd SharkSSL/build/
+./SharkTrust
+```
+
+When the example runs successfully, you should see output similar to the following:
+
+```
+./SharkTrust
+SharkTrust and Minnow Server Demo.
+
+Bind error: port 443
+WebSocket server listening on 9443
+Sending Command: Register
+SharkTrust response 0 : Success
+Our new device Key (X-Dev) 80955398A9FA9647497F
+Sending Command: GetDN
+SharkTrust response 0 : Success
+--------------------------------------------
+Your server URL: https://minnow.equip.run
+Test DNS as follows: ping minnow.equip.run
+--------------------------------------------
+Sending Command: GetCertificate
+SharkTrust response 3 : Processing
+Certificate not ready
+Installing embedded default certificate
+Next SharkTrust HTTP poll in 70 seconds
+Minnow Server is running and waiting for connections.
+Sending Command: GetCertificate
+SharkTrust response 0 : Success
+Certificate expires in 89 days
+Installing certificate fetched from SharkTrust
+```
+
+Once the certificate is installed, navigate to https://SUBDOMAIN.equip.run:9443 to access your server.
+
+
 ## The SharkTrust Demo Portal
 
 The following instructions are for using our demo portal:
