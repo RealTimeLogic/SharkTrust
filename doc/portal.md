@@ -1,115 +1,97 @@
-# Portal configuration and upgrades
+# Portal configuration
 
-The SharkTrust portal automates HTTPS certificates for embedded web interfaces
-using a compatible ACME certificate authority (CA).
-It can run on a public server or on a private IPv4 network. Devices keep the
-existing SharkTrust binary protocol in both installations.
+[Manual index](README.md) | [Installation](installation.md) | [Operations](operations.md)
 
-## Runtime and existing data
+Use the Ansible variables when installing a portal. The installer writes
+`/opt/SharkTrust/mako.conf`, which Mako reads at startup. For an existing
+installation, configuration is preserved unless you explicitly request replacement.
+Do not assume that changing controller variables changes a retained `mako.conf`.
 
-Use a Mako Server with BAS version 6375 or newer and a matching current
-`mako.zip` containing `acme/engine.create`. Startup checks both requirements.
-The portal uses the current certificate engine and exportable software private
-keys because the device protocol transfers each device's key to that device.
+## Installer variables
 
-Preserve the Mako home directory when upgrading, including `data` and `cert`.
-The portal stores zones, devices, users, administrator credentials and device
-certificate metadata in `data/portal.sqlite.db`. A dedicated writer serializes
-transactions. Browser and device write responses follow the database commit.
-WAN address groups are derived from device records.
+The defaults are in [ansible/SharkTrust/vars.yaml](../ansible/SharkTrust/vars.yaml).
+Put deployment overrides in a private extra-vars file as shown in the
+[installation guide](installation.md#5-configure-your-installation).
+The following are YAML values; do not quote booleans as strings.
 
-On the first start, the portal imports existing zone and device JSON files in
-one transaction. It checks referenced records and rejects orphan zones or
-devices. Existing zone keys, device keys, names and owner password hashes are
-preserved. The original JSON files remain unchanged as a recovery snapshot;
-after migration, editing them does not change the portal. A failed import does
-not activate a partially populated database. Fix the reported legacy data and
-restart. See [stored data](data-structures.md) for the schema.
+### Deployment and runtime
 
-Stop Mako before making a filesystem backup. Back up the complete `data` and
-`cert` directories together. To roll back to the old portal, restore the
-pre-upgrade backup; the retained JSON files do not contain post-migration changes.
+| Variable | Type; default | Meaning |
+| --- | --- | --- |
+| `ansible_user` | String; `rtl` | SSH deployment account. The wrapper's optional second argument overrides it. |
+| `ansible_python_interpreter` | Path string; `/usr/bin/python3` | Python interpreter on the target. |
+| `start_portal` | Boolean; `false` | `true` enables and starts the portal after requiring a saved administrator record. `false` stops and disables an existing portal too. |
+| `replace_mako_conf` | Boolean; `false` | `true` replaces existing configuration from reviewed variables and saves a timestamped backup. A fresh configuration is always created when absent. |
+| `GitSharkTrust` | URL string; `https://github.com/RealTimeLogic/SharkTrust.git` | Repository cloned on the target when no local portal ZIP is selected. |
+| `GitSharkTrustVersion` | Git revision string; `master` | Branch, tag, or commit. Pin a reviewed commit for repeatable deployment. |
+| `SharkTrustSourceDir` | Absolute target path string; `/opt/SharkTrust-source` | Dedicated Git checkout used to package `www`. |
+| `portal_local_archive` | Controller path string; empty | Optional ZIP containing the contents of `www` at its root, including hidden files. Overrides Git packaging. |
+| `mako_local_archive` | Controller path string; empty | Optional Linux x86-64 tar.gz with `mako` and matching `mako.zip` at its root. Takes precedence over download. |
+| `mako_download_url` | HTTPS URL string; empty | Required when no local runtime archive is supplied. There is no automatic default release. |
+| `mako_archive_checksum` | String; no usable default | Required `sha256:` followed by the release archive's 64 hexadecimal digest characters. |
 
-Certificate PEMs are stored separately under `cert/profiles/<profile>/`, with
-device files in its `devices` subdirectory. The profile identifies the CA
-directory URL and production/staging selection. Switching either creates a
-separate store. Switching back reuses that profile's certificates and keys.
-ACME accounts are stored separately for each CA directory URL. A legacy software account
-in `cert/account.json` is reused only when its saved CA profile matches the
-configured directory. A malformed saved account causes startup to fail rather
-than silently replacing its identity.
+### Service names and CA selection
 
-Legacy PEM files are copied into a profile only when the saved account identifies
-the same CA/environment, or when using the original default Let's Encrypt
-production configuration without a saved account. For another known legacy CA,
-set `acme.importLegacy=true` once after confirming that those PEMs belong to the
-selected configuration. `cert/legacy-profile.json` records the association so
-later CA changes cannot reassign those originals to another profile. The
-original PEM files are retained.
+| Variable | Type; default | Runtime setting or meaning |
+| --- | --- | --- |
+| `settingsdn` | Hostname string; `sharktrust.realtimelogic.com` | `settings.dn`. Replace with your service hostname. |
+| `settingsns1` | Hostname string; `ns1.realtimelogic.com` | `settings.ns1`. Replace for your installation. |
+| `settingsns2` | Hostname string; `ns2.realtimelogic.com` | `settings.ns2`. Replace for your installation. |
+| `settingsip` | IPv4 string; empty | `settings.ip`. Empty omits it and uses address detection. Private RFC 1918 ranges select on-premises behavior; public addresses select public behavior. |
+| `settingsacmeproduction` | Boolean; `true` | `settings.acme.production`. `false` selects staging unless an explicit directory overrides it. |
+| `settingsacmersa` | Boolean; `false` | `settings.acme.rsa`. New keys use ECC unless RSA is selected. |
+| `settingsacmedirectoryurl` | HTTPS URL string; empty | Optional `settings.acme.directoryUrl`, overriding the environment's directory. |
+| `settingsacmeproductionurl` | HTTPS URL string; empty | Optional `settings.acme.productionUrl`; empty keeps the Let's Encrypt production default. |
+| `settingsacmestagingurl` | HTTPS URL string; empty | Optional `settings.acme.stagingUrl`; empty keeps the Let's Encrypt staging default. |
+| `realm` | String; `SharkTrust Service` | Authentication realm. Preserve it when migrating existing zone-owner password hashes. |
 
-The portal can run four device certificate orders concurrently. Each DNS zone
-retains every active challenge when a device address changes or another order
-finishes. Existing device keys are reused for renewal. Deleting a device or
-stopping the application cancels its pending order and challenge timer.
-For both device and portal certificates, ACME Renewal Information (ARI) selects
-a random renewal time within the CA's suggested window. SQLite preserves that
-time across restarts, bound to the certificate fingerprint and CA profile. An
-unchanged window retains its selected time; a changed window selects a new one.
-Renewal orders include the ARI identifier of the certificate being replaced.
+The name-server names must resolve before startup. `settingsdn` remains a DNS
+hostname for an on-premises deployment; the private address belongs in `settingsip`.
 
-Without usable ARI, renewal starts before expiration by the smaller of 22 days
-or one third of the certificate's actual validity period. This automatically
-adapts to 64-day, 45-day and shorter certificates. An ARI lookup failure retains
-an already selected earlier renewal time. Expired certificates do not wait for
-an ARI lookup. The CA's check interval is bounded to one minute through one day;
-unavailable or invalid ARI is checked again after six hours. Renewal and ARI
-checks run through the normal portal/device scans, with at most four ARI lookups
-in progress. There is no additional configuration option.
+### Email
 
-Failed orders retry after 1, 5, 15 and 60 minutes, then every 6 hours until
-successful. The delay resets after success. Pending DNS reloads retry every
-30 seconds; the portal rebuilds zone files from the database at startup.
+| Variable | Type; default | Meaning |
+| --- | --- | --- |
+| `emailserver` | Hostname string; placeholder `your-mail-server` | Required SMTP server; replace the placeholder. |
+| `emailport` | Integer; `465` | SMTP TCP port, 1-65535. |
+| `emailconsec` | String; `tls` | `tls` for TLS from connection start, or `starttls` for an SMTP TLS upgrade. |
+| `emailuseauth` | Boolean; `true` | Whether SMTP authentication is used. |
+| `emailuser` | String; example `no-reply@realtimelogic.com` | SMTP username, required when authentication is enabled. |
+| `emailpassword` | String; placeholder `CHANGE_ME` | SMTP credential, required when authentication is enabled. Keep outside Git. |
+| `emailfrom` | Email string; example `no-reply@realtimelogic.com` | Sender allowed by your mail provider; replace for your installation. |
+| `emailto` | Email string; placeholder `log-file-receiver` | One operational contact address. Also used for ACME account registration. |
+| `emailsubject` | String; `SharkTrust Server` | Normal operational log email subject. Error notifications may use a specific subject. |
+| `emailsignature` | String; `Sent from SharkTrust` | Text signature for portal email. |
 
-## Private on-premises installation
+The template writes `log.logerr=true`, the SMTP table, and `log.signature`.
+SMTP acceptance is not confirmation of inbox delivery; use **Test email** and
+check the recipient's mailbox.
 
-Set `settings.ip` to the server's private IPv4 address. The portal recognizes
-the `10.0.0.0/8`, `172.16.0.0/12` and `192.168.0.0/16` private ranges. For example,
-the following is the settings portion of an existing Mako configuration:
+## Server preparation options
 
-```lua
--- Use your own domain names and the portal's LAN address.
-settings={
-   dn="trust.example.com",
-   ns1="ns1.example.com",
-   ns2="ns2.example.com",
-   ip="192.168.1.20",
-   acme={production=true}
-}
-```
+These values belong to
+[ansible/NewMachine/vars.yaml](../ansible/NewMachine/vars.yaml).
+They affect the optional account/server preparation playbook, not the main
+portal playbook.
 
-Registered zone apex records point to the private server address. The NS records
-retain the configured authoritative DNS server names. Devices and zone users
-connect over HTTPS; administrators can open `http://192.168.1.20/` from a private
-network to configure the portal. HTTP administration is accepted only when the
-request targets the configured private IP address and originates from a private
-or loopback address. Use an isolated management network for this HTTP access.
-
-On premises, registered zone certificates use DNS-01 validation. The portal
-does not request HTTP-01 certificates for its static service and server names;
-it continues to load certificates from the selected profile for those names. Public CA
-issuance still requires a registered public domain, correct public delegation,
-and authoritative DNS reachable by the CA. Private web addresses do not turn
-SharkTrust into a private certificate authority or an offline issuer.
-
-Linux installations require BIND9 and `dig` (`bind9-dnsutils` on Ubuntu), the
-existing privileged service setup, and HTTP/HTTPS ports 80 and 443. Registration
-checks the parent DNS delegation with `dig -4 +trace`; outbound DNS must be
-available. WHOIS is not used to validate delegated subdomains.
-The service can use `UMask=0077` to keep credentials and private keys private.
-SharkTrust explicitly makes its BIND zone directory accessible (`0755`) and
-its generated DNS files readable (`0644`) so BIND can load them as its own user.
-On Windows, zone files are written under the
-Mako home `bind` directory and BIND commands are simulated for local testing.
+| Variable | Type; default | Meaning |
+| --- | --- | --- |
+| `onlineuser` | Linux username string; `rtl` | Non-root deployment account to create. |
+| `deployment_public_key_file` | Controller path string | Wrapper selects `id_ed25519.pub` or `id_rsa.pub`, or its explicit second argument. Direct playbook use defaults to `~/.ssh/id_rsa.pub` unless overridden. |
+| `ansible_python_interpreter` | Target path string; `/usr/bin/python3` | Python used after bootstrap. |
+| `apt_lock_timeout` | Integer seconds; `300` | Package-manager lock wait. |
+| `bootstrap_packages` | List of package strings; `[sudo, ca-certificates]` | Packages installed after Python bootstrap. |
+| `perform_dist_upgrade` | Boolean; `false` | Upgrade the distribution's installed packages. |
+| `configure_unattended_upgrades` | Boolean; `false` | Install and configure automatic system updates. |
+| `configure_firewall` | Boolean; `false` | Configure and enable UFW. |
+| `install_fail2ban` | Boolean; `false` | Install and start fail2ban. |
+| `disable_root_ssh` | Boolean; `false` | Set `PermitRootLogin no`. Verify deployment-key access first. |
+| `remove_conflicting_packages` | Boolean; `false` | Remove the configured package list. |
+| `ssh_port` | Integer port; `22` | Port allowed by the optional firewall. For SSH transport on another port, also configure `ansible_port` or SSH configuration. |
+| `ssh_service_name` | Service-name string; `ssh` | Service reloaded after SSH configuration changes. |
+| `firewall_allowed_tcp_ports` | List of ports; SSH port, `53`, `80`, `443` | TCP services allowed by optional UFW tasks. |
+| `firewall_allowed_udp_ports` | List of ports; `[53]` | UDP services allowed by optional UFW tasks. |
+| `conflicting_packages` | List of package strings; `[sendmail, apache2]` | Removed only when the removal option is enabled. |
 
 ## Settings
 
@@ -124,7 +106,7 @@ the first ACME orders complete. The log reports each certificate request and
 the names whose certificates have been loaded. On subsequent starts, SharkTrust
 loads its saved certificates without waiting for a new certificate order.
 
-These fields belong to the existing `settings` table in `mako.conf`. Keep the
+These runtime fields belong to the existing `settings` table in `mako.conf`. Keep the
 authentication `realm` and `log.smtp` settings. Administrator `users` remain
 supported until a portal administrator is saved with `-credentials` below.
 `log.smtp.to` must contain the service contact email address.
@@ -144,7 +126,8 @@ supported until a portal administrator is saved with `-credentials` below.
 | `acme.curve` | string | Optional, `"SECP384R1"` | ECC curve for new certificate keys; must be supported by the runtime. |
 
 Browser sessions expire after 30 minutes of inactivity. Forms, device deletion
-and logout use session-bound CSRF tokens. Password recovery requires the email
+and logout use session-bound tokens to prevent cross-site request forgery (CSRF).
+Password recovery requires the email
 code and zone key; the code expires after ten minutes or five failed attempts.
 
 ## Select another certificate authority
@@ -173,15 +156,24 @@ algorithm. TLS verification of the CA is always enabled. A private CA needs
 appropriate trust on Mako and on the browsers and devices using its certificates;
 choosing that CA alone does not establish browser trust.
 
+The engine submits orders with ACME terms acceptance enabled. Review the
+selected provider's terms before configuring its directory. There is no browser
+prompt for each certificate order.
+
 ## Set or reset the portal administrator
 
 Stop the existing Mako instance, then run it with its usual configuration and
 the optional `-credentials` argument. For example, from the configured Mako
 working directory:
 
-```powershell
-# Replace the example password and retain your normal startup arguments.
-mako -credentials "admin@example.com:YOUR_NEW_PASSWORD"
+```bash
+# On the target server; stop the service before resetting its account.
+sudo systemctl stop SharkTrust
+cd /opt/SharkTrust
+sudo /usr/local/bin/mako -c /opt/SharkTrust/mako.conf \
+  -credentials 'admin@example.com:REPLACE_WITH_YOUR_PASSWORD'
+# After successful completion, start the service without the credential option.
+sudo systemctl start SharkTrust
 ```
 
 Run this command in the foreground, without `-s` or `-d`. After the database
@@ -215,72 +207,14 @@ Use this option only for setup or reset, separately from normal startup commands
 Command-line passwords can appear in shell history and process listings; do not
 store the password in a permanent service command.
 
-## Device clients
+## Runtime and existing data
 
-The [C client guide](../examples/README.md) covers the OpenSSL download examples
-and the SharkSSL/Minnow Server example. Configure the portal hostname separately
-from the device zone, provision the zone's own key, and retain each device's
-registration credential across restarts.
+Use a Mako Server with BAS 6375 or newer and matching resources providing
+`acme/engine.create` and `renewalInfo`. The installer also probes certificate-time
+parsing, PBKDF2, and SQLite. The application uses exportable software keys because
+it sends device private keys to the corresponding clients.
 
-ARI controls when the portal renews a certificate. Devices must still fetch
-the replacement and install it in their web server. The updated Minnow example
-and OpenSSL `--watch` mode poll at most 12 hours after a successful fetch, sooner
-when the remaining certificate lifetime is short. The OpenSSL examples save
-one atomic `DeviceCredentials.pem` bundle; the web server integration owns
-reloading that bundle. Existing device protocol commands and response layouts
-are unchanged.
-
-## Zone users and sensitive operations
-
-The zone owner and portal administrator can open **Users and sign-in** to add
-users, set or reset their local passwords, and assign one of these roles:
-
-| Role | Access |
-| --- | --- |
-| Viewer | View registered devices and details. |
-| Operator | Viewer access, device removal and inactive-device cleanup. |
-| Zone administrator | Operator access, user management, sign-in settings and zone credentials. |
-
-Added usernames are email addresses, normalized to lowercase. Local passwords
-use the same salted hash format as the portal administrator. Leaving a password
-blank when editing retains it. Role or password changes and user removal revoke
-the affected user's existing sessions. The original owner remains available
-through the existing password and account recovery flow.
-
-Showing the zone key and downloading the generated C credentials require a code
-sent to the zone owner's email address. The code expires in ten minutes and allows
-five verification attempts. Requests are limited to one per minute and five per
-hour per session. Successful verification grants one use, for the selected action
-and zone, within one minute. The SMTP service must work for this flow. Portal
-administrators can use **Test email** to check SMTP acceptance.
-
-Devices are no longer automatically deleted after 90 days. **Inactive devices**
-previews devices that have not contacted the portal for the selected whole number
-of days (1-36500, initially 90). A preview lasts five minutes and requires explicit
-acknowledgement. Removal rechecks activity in the database transaction and retains
-devices that reconnected after the preview. Removal revokes the device credential
-and deletes its stored certificate material across profiles.
-
-## Optional Microsoft Entra sign-in
-
-In **Users and sign-in**, enable Entra and provide these fields:
-
-| Field | Type and requirement |
-| --- | --- |
-| Tenant ID | Required UUID string for a single Microsoft Entra tenant. |
-| Application (client) ID | Required UUID string for its Web application registration. |
-| Client secret Value | Required string, up to 512 bytes; blank retains the saved value when editing. |
-| Client secret expiration | Required date string in `YYYY-MM-DD` format. |
-
-Register `https://<zone-domain>/sso` as the Web redirect URI. For every allowed
-user, add their email address, role and Microsoft Entra user object ID (a UUID
-string). An identity must match both the email and object ID. There is no
-automatic user enrollment or implicit administrator access.
-
-The portal uses authorization-code flow with PKCE and validates the ID-token
-signature, issuer, tenant, audience, nonce and validity period. User permissions
-come from the portal's database. Local password sign-in remains available when
-Entra is unavailable. The portal emails the owner about client-secret expiration
-or rejection. Replace the secret in **Users and sign-in** when needed; the saved
-secret is never returned in the form. Restrict OS access to the database and its
-backups because they contain this service credential and device enrollment keys.
+See [operations and upgrades](operations.md) for backup, legacy JSON import,
+certificate profile migration, and safe updates. The [storage reference](data-structures.md)
+describes the database and certificate files. Follow the [on-premises guide](on-premises.md)
+when `settings.ip` is a private address.

@@ -4,8 +4,7 @@ __pycache__/
 /tests/
 *~
 
-# Client executables and per-zone/device secrets.
-/examples/getzkey.ch
+# Client executables and per-device secrets. The shared test-zone header is tracked.
 /examples/DEVICE.KEY*
 /examples/DeviceCredentials.pem*
 /examples/DeviceCert.pem

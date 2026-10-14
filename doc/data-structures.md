@@ -1,8 +1,10 @@
 # Portal storage
 
+[Manual index](README.md) | [Architecture](architecture.md) | [Operations](operations.md)
+
 SharkTrust keeps its authoritative records in `data/portal.sqlite.db` under the
 Mako home directory. Certificate PEMs remain in `cert`. See the
-[upgrade and backup procedure](portal.md#runtime-and-existing-data) before
+[upgrade and backup procedure](operations.md#back-up-a-consistent-installation) before
 changing or moving an installation.
 
 One dedicated writer connection owns schema changes and transactions. Reads use
@@ -38,7 +40,9 @@ Portal PEM files are `cert/profiles/<profile>/<domain>.key.pem` and
 
 ACME accounts use a separate directory-URL digest and retain their current
 `cert/account-<digest>.json` format. Never publish the database, account files,
-private keys, backup copies or generated device credentials.
+private keys, backup copies or generated device credentials. The bundled
+`st.sharkssl.com` test-zone header is an intentional public test credential;
+this exception does not apply to your own zones or device keys.
 
 Renewal schedules use the `meta` key `renewal:<profile>:<domain>`. Their JSON
 records contain a string `fingerprint` (SHA-256 of the certificate PEM), numeric

@@ -11,26 +11,53 @@ The [Minnow Server example](#minnow-server-example) also runs an HTTPS server an
 installs downloaded credentials in memory. These are small integration examples;
 adapt their socket, storage, and scheduling code to your application.
 
-## Prepare your zone
+## Try the shared test zone
 
-Before running a client, configure a SharkTrust portal and register a DNS zone
-you control. See [portal configuration](../doc/portal.md) for public and private
-on-premises installations and CA selection.
+The bundled [getzkey.ch](getzkey.ch) uses **`st.sharkssl.com`** through the
+**`sharktrust.realtimelogic.com`** portal. You can run the generated-key client
+without creating an account or configuring DNS. The portal assigns a name such
+as `device.st.sharkssl.com`, adding a numeric suffix when needed.
+
+With a POSIX environment, C compiler, and OpenSSL 1.1.1 or later development
+headers and libraries installed, run from this `examples` directory:
+
+```sh
+# Build and fetch a certificate using the bundled test-zone header.
+make
+umask 077
+./SharkTrust-Client-Obfuscated-Key
+```
+
+The shared zone credential is public and intended for testing. For your own
+namespace and control over its credentials, follow the optional setup below.
+The plain-key client is an alternative for supplying a zone key at runtime;
+see [Fetch a certificate](#fetch-a-certificate).
+
+## Use your own zone (optional)
+
+Register a DNS zone you control with the portal, or configure your own portal.
+Follow the [zone user manual](../doc/user-guide.md) for registration and credential
+download, or [install your own portal](../doc/installation.md). See
+[portal configuration](../doc/portal.md) for CA selection and the
+[on-premises guide](../doc/on-premises.md) for private installations.
 
 1. Delegate the zone to the DNS servers specified by your portal operator.
    For a subdomain, add the delegation at its parent zone. Wait until the
    delegation resolves correctly; there is no fixed propagation time.
 2. Open the portal, register the zone, and sign in as its owner.
-3. Reveal the zone key or download the generated C header. Both actions require
-   the verification code sent to the owner's email address.
-4. Create a private working directory for this device and zone. Do not share
-   its registration file with another device or reuse it with another zone.
+3. Download your zone's generated `getzkey.ch`. This requires the verification
+   code sent to the owner's email address. You can instead reveal the plain
+   zone key for the plain-key client.
+4. Replace the bundled `getzkey.ch` with your downloaded file and rebuild with
+   `make`. For the Minnow Server example, replace the header in the SDK's
+   `examples` directory and rebuild that example.
+5. Use a new working directory when changing zones so the client registers a
+   new device. Do not reuse the previous zone's `DEVICE.KEY`.
 
-The prepared test zone is **`st.sharkssl.com`**. The clients still connect to
-**`sharktrust.realtimelogic.com`**. Once the portal and zone are ready, use the
-zone key or generated header for `st.sharkssl.com` to receive a name such as
-`device.st.sharkssl.com`. The zone key selects the namespace; the client does
-not append the zone name itself. Use a new working directory when changing zones.
+The zone key selects the namespace; the client does not append the zone name
+itself. Keep `SHARK_TRUST_SERVICE_NAME` unchanged when using the public portal.
+Change it when using your own portal. Keep your own zone header private when
+sharing or publishing your application.
 
 The device's IPv4 address must be reachable from the browser that will access
 it. A private LAN address is expected for an intranet web interface. Publicly
@@ -44,8 +71,8 @@ The examples require a POSIX environment, a C compiler, and OpenSSL 1.1.1 or
 later development headers and libraries. On Windows, use WSL with these
 dependencies installed. Run the build commands from this `examples` directory.
 
-Edit these settings near the top of `SharkTrust-Client.c` before building either
-variant:
+You can change these settings near the top of `SharkTrust-Client.c` before
+building either variant:
 
 | Setting | Type, default, and purpose |
 | --- | --- |
@@ -59,8 +86,9 @@ variant:
 cc -std=c99 -Wall -Wextra -o SharkTrust-Client SharkTrust-Client.c -lssl -lcrypto
 ```
 
-The generated-key variant uses the same implementation. Download your zone's
-`getzkey.ch` into this directory before building it:
+The generated-key variant uses the same implementation and the bundled
+`getzkey.ch` for the shared test zone. Optionally replace that header with your
+own zone's generated file before building:
 
 ```sh
 # Compile this entry point alone; it includes SharkTrust-Client.c.
@@ -68,16 +96,24 @@ cc -std=c99 -Wall -Wextra -o SharkTrust-Client-Obfuscated-Key \
   SharkTrust-Client-Obfuscated-Key.c -lssl -lcrypto
 ```
 
-The repository no longer supplies a working shared demo zone key. The generated
-header is excluded by `.gitignore`; keep it private. Obfuscation makes a key
-less apparent in an executable; it does not prevent extraction from firmware
-or a running process.
+The supplied Makefile builds both variants and rebuilds the generated-key
+client when `getzkey.ch` changes:
+
+```sh
+# Build both clients with the bundled or replacement zone header.
+make
+```
+
+The bundled test-zone header is included in Git. Obfuscation makes a key less
+apparent in an executable; it does not prevent extraction from firmware or a
+running process.
 
 ## Fetch a certificate
 
-Run one client process per private working directory. The following Bash
-example uses the plain-key variant and prompts without placing the zone key in
-the command history:
+Run one client process per private working directory. The default generated-key
+client uses `getzkey.ch` and needs no environment variable. To supply a plain
+zone key instead, the following Bash example prompts without placing it in the
+command history:
 
 ```bash
 # Use an absolute executable path if your working directory is elsewhere.
@@ -171,14 +207,15 @@ format instead of PEM and keeps the downloaded certificate and key in RAM.
 It persists only `DEVICE.KEY`. This is a small integration example: adapt
 device naming, addressing, storage, and scheduling to your firmware.
 
-Download your zone's `getzkey.ch` into the SDK's `examples` directory. Build the
-library, socket adapter, and example with `SHARKSSL_CHECK_DATE=1`; a correct
+The SDK example also uses the bundled `getzkey.ch` for `st.sharkssl.com` by
+default. Optionally replace it with your own zone's header. Build the library,
+socket adapter, and example with `SHARKSSL_CHECK_DATE=1`; a correct
 UTC clock is required. The Visual Studio `SharkTrust` project sets this option.
 For the source SDK Makefile, run from the SDK root:
 
 ```sh
 # Rebuild the library and client with the same date-checking configuration.
-make -C build -B XCFLAGS=-DSHARKSSL_CHECK_DATE=1 libSharkSSL.a SharkTrust
+make -C build -B XCFLAGS=-DSHARKSSL_CHECK_DATE=1 SharkTrust
 ```
 
 Run the executable from a private working directory after DNS is ready. It

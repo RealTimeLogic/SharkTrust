@@ -25,8 +25,8 @@
 #include SHARK_TRUST_ZONE_KEY_HEADER
 #endif
 
-/* The HTTPS endpoint stays the same. Use a zone key for st.sharkssl.com
- * to receive names such as device.st.sharkssl.com; the portal assigns the name.
+/* The bundled getzkey.ch selects the shared st.sharkssl.com test zone.
+ * The portal assigns names such as device.st.sharkssl.com.
  */
 #ifndef SHARK_TRUST_SERVICE_NAME
 #define SHARK_TRUST_SERVICE_NAME "sharktrust.realtimelogic.com"
