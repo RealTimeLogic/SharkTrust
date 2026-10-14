@@ -1,465 +1,253 @@
 /*
-
-  SharkTrust Example Program
-
-  Compile as follows:
-  gcc -o SharkTrust-Client SharkTrust-Client.c -lssl -lcrypto
-
-  Alternatively (adding zone-key):
-  gcc -D'SHARK_TRUST_ZONE_KEY="the-key"' -o SharkTrust-Client\
-  SharkTrust-Client.c -lssl -lcrypto
-
-  Windows users: compile using Cygwin or install the Windows 10 Linux subsystem.
-
-  This is a generic example and the required SharkTrust secure
-  communication link is managed by OpenSSL. You may use the code as a
-  template when porting to your TLS stack of choice. SharkSSL users
-  should instead use the SharkTrust example bundled with the SharkSSL
-  IDE.
-
-  The example, by default, connects to the SharkTrust demo instance
-  operated by Real Time Logic. You may use this service for test
-  purposes, however, before using this C code, sign up for the service
-  and set the SHARK_TRUST_ZONE_KEY macro to the zone key received after
-  signing up for the service.
-
-  SharkTrust service demo instance: https://sharktrust.realtimelogic.com/
-
-  The example is designed to be minimal and uses virtually no error
-  checking. The example expects that it can save the device-key (X-Dev),
-  device-certificate, and device-certificate-key in the current
-  directory.
-
-  An X.509 certificate and it's corresponding private key is saved in
-  the current directory after successfully running the program. You may
-  import the certificate and key into your HTTPS server and navigate to
-  the URL: https://[hostname].[zone], where hostname is the sub-domain name
-  used by this C code and zone is the zone (domain name) used when
-  signing up for the SharkTrust service.
-
-  WARNING:
-
-  This example does not validate the SharkTrust service's
-  certificate. You must validate the certificate when porting to your
-  TLS stack of choice or add validation to this example if your selected
-  TLS stack is OpenSSL. The TLS connection is rendered useless when the
-  SharkTrust service's certificate is not validated. See the following
-  tutorial for details:
-    realtimelogic.com/articles/How-Anyone-Can-Hack-Your-Embedded-Web-Server
-
-  LICENSE:
-  This software (this example) is licensed under: Zero-Clause BSD
-  https://opensource.org/licenses/0BSD
-*/
-
+ * Minimal SharkTrust download example, OpenSSL 1.1.1 or later, POSIX.
+ * Adapt the socket, storage, and scheduling calls when porting to a device.
+ * Build: cc -std=c99 -Wall -Wextra -o SharkTrust-Client SharkTrust-Client.c -lssl -lcrypto
+ * License: Zero-Clause BSD, https://opensource.org/licenses/0BSD
+ */
+#define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
-#include <errno.h>
-#include <unistd.h>
-#include <malloc.h>
+#include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
+#include <unistd.h>
+#include <signal.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <resolv.h>
 #include <netdb.h>
 #include <openssl/ssl.h>
-#include <openssl/x509v3.h>
 #include <openssl/err.h>
 
-/* If denied access */
-static void terminate()
-{
-   printf("Press Enter to exit program\n");
-   getchar();
-   exit(1);
-}
-
-/****************************************************************************
-                  Generic socket connection and OpenSSL stuff
-****************************************************************************/
-
-/* Connect to server 'hostname' @ port.
-   Returns the socket descriptor.
-*/
-int openConnection(const char *hostname, int port)
-{
-   int sd;
-   struct hostent *host;
-   struct sockaddr_in addr;
-   if ( (host = gethostbyname(hostname)) == NULL )
-   {
-      perror(hostname);
-      terminate();
-   }
-   sd = socket(PF_INET, SOCK_STREAM, 0);
-   bzero(&addr, sizeof(addr));
-   addr.sin_family = AF_INET;
-   addr.sin_port = ntohs(port);
-   addr.sin_addr.s_addr = *(long*)(host->h_addr);
-   if ( connect(sd, (struct sockaddr*)&addr, sizeof(addr)) != 0 )
-   {
-      close(sd);
-      perror(hostname);
-      terminate();
-   }
-   return sd;
-}
-
-
-/* Returns an SSL_CTX object
-   https://www.openssl.org/docs/manmaster/man3/SSL_CTX_new.html
-*/
-SSL_CTX* initCTX(void)
-{
-   const SSL_METHOD *method;
-   SSL_CTX *ctx;
-   OpenSSL_add_all_algorithms();  /* Load cryptos, et.al. */
-   SSL_load_error_strings();   /* Bring in and register error messages */
-   method = SSLv23_method();  /* Create new client-method instance */
-   ctx = SSL_CTX_new(method);   /* Create new context */
-   if ( ! ctx )
-   {
-      ERR_print_errors_fp(stderr);
-      terminate();
-   }
-   return ctx;
-}
-
-/* Closes all descriptors/objects associated with one secure connection
- */
-void closeAll(SSL* ssl, int sock, SSL_CTX* ctx)
-{
-   SSL_free(ssl);
-   close(sock);
-   SSL_CTX_free(ctx);
-}
-
-
-/* Returns the local (LAN) IP address
- */
-char* getIpAddr(int sock)
-{
-   struct sockaddr_in in;
-   int size=sizeof(struct sockaddr_in);
-   int status=getsockname(sock, (struct sockaddr *)&in, &size);
-   if(status)
-   {
-      perror("getIpAddr");
-      terminate();
-   }
-   return inet_ntoa(in.sin_addr);
-}
-
-
-/* Functions for converting network endian to host endian
- */
-
-#if defined(__ORDER_LITTLE_ENDIAN__)
-static void
-netConvU16(uint8_t* out, const uint8_t* in)
-{
-   out[0] = in[1];
-   out[1] = in[0];
-}
-static void
-netConvU32(uint8_t* out, const uint8_t* in)
-{
-   out[0] = in[3];
-   out[1] = in[2];
-   out[2] = in[1];
-   out[3] = in[0];
-}
-#elif defined(__ORDER_BIG_ENDIAN__)
-#define netConvU16(out, in) memcpy(out,in,2)
-#define netConvU32(out, in) memcpy(out,in,4)
-#else
-#error Need endian macros
+#ifdef SHARK_TRUST_OBFUSCATED_KEY
+#ifndef SHARK_TRUST_ZONE_KEY_HEADER
+#define SHARK_TRUST_ZONE_KEY_HEADER "getzkey.ch"
+#endif
+#include SHARK_TRUST_ZONE_KEY_HEADER
 #endif
 
-
-
-/****************************************************************************
-                        SharkTrust Client
-****************************************************************************/
-
-/* The SharkTrust service instance name. Change this macro when you
-   have your own SharkTrust service instance.
-*/
-#if 1
+/* The HTTPS endpoint stays the same. Use a zone key for st.sharkssl.com
+ * to receive names such as device.st.sharkssl.com; the portal assigns the name.
+ */
+#ifndef SHARK_TRUST_SERVICE_NAME
 #define SHARK_TRUST_SERVICE_NAME "sharktrust.realtimelogic.com"
-#else
-/* See documentation for details on the following test server */
-#define SHARK_TRUST_SERVICE_NAME "sharktrustEC.realtimelogic.com"
 #endif
+static const char *caFile=NULL; /* Private portal CA PEM file, or system roots. */
+static const char *deviceName="device"; /* Requested DNS label. */
+static const char *deviceIp=NULL; /* IPv4 string, or use the connection's local IP. */
 
+enum { SUCCESS, FORBIDDEN, UNKNOWN, PROCESSING, SERVERERROR, CLIENTERROR };
+enum { REGISTER, GET_DN, GET_CERT };
+static const char *commands[] = { "Register", "GetDN", "GetCertificate" };
+static char zoneKey[65];
 
-/* The zone (domain name) key. You must at a minimum register one
- * domain name, such as product.company.com.
- */
-#ifndef SHARK_TRUST_ZONE_KEY
-#define SHARK_TRUST_ZONE_KEY "the-64-byte-key"
-#error remove this line after setting the zone key above.
-#endif
-
-
-/* SharkTrust response codes
- */
-#define RSP_SUCCESS     0
-#define RSP_FORBIDDEN   1
-#define RSP_UNKNOWN     2
-#define RSP_PROCESSING  3
-#define RSP_SERVERERROR 4
-#define RSP_CLIENTERROR 5
-
-
-/* All HTTP SharkTrust commands start with:
- */
-static const char sharkTrustRequestHeader[]={
-   "GET /device/ HTTP/1.0\n"
-   "X-Key: " SHARK_TRUST_ZONE_KEY "\n"
-   "X-Command: " /* Header key, the header value is added by C code below */
-};
-
-/* Register device */
-static const char cmdRegister[]={
-   "Register\n" /* X-Command: */
-   "X-Info: OpenSSL SharkTrust Client Demo\n" /* Optional */
-   "X-IpAddress: " /* Header key, the header value is added by C code below */
-};
-
-/* Download certificate */
-static const char cmdGetCert[]={
-   "GetCertificate\n" /* X-Command: */
-   "X-CertType: X509\n"
-   "X-IpAddress: " /* Header key, the header value is added by C code below */
-};
-
-
-/* Open a secure link to the SharkTrust service and send the data in
- * the sharkTrustRequestHeader[].
- */
-int openSharkTrustCon(SSL_CTX** ctx, SSL** ssl)
+static unsigned read16(const unsigned char *p)
 {
-   int ssock = openConnection(SHARK_TRUST_SERVICE_NAME, 443);
-   *ctx = initCTX();
-   *ssl = SSL_new(*ctx);
-   SSL_set_fd(*ssl, ssock);    /* attach the socket descriptor */
-   if( SSL_connect(*ssl) != 1 )   /* perform the connection */
-   {
-      ERR_print_errors_fp(stderr);
-      terminate();
-   }
-   SSL_write(*ssl, sharkTrustRequestHeader, sizeof(sharkTrustRequestHeader)-1);
-   return ssock;
+   return ((unsigned)p[0] << 8) | p[1];
 }
 
-
-/* Send an HTTP key/value header to the SharkTrust service.
- */
-void writeHttpHeader(SSL* ssl, const char* key, const char* val)
+static uint32_t read32(const unsigned char *p)
 {
-   if(key)
-   {
-      SSL_write(ssl, key, strlen(key));
-      SSL_write(ssl, ":", 1);
-   }
-   SSL_write(ssl, val, strlen(val));
-   SSL_write(ssl, "\n", 1);
+   return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
+      ((uint32_t)p[2] << 8) | p[3];
 }
 
-
-/* Get the complete SharkTrust response and validate the binary
- * response header.
- */
-int getSharkTrustResponse(SSL *ssl, uint8_t* buf, int blen)
+/* Blocking IPv4 socket for this host demo. */
+static int openConnection(void)
 {
-   const char* msg;
-   int rlen = SSL_read(ssl, buf, blen);
-   /* We expect a full SharkTrust response in one TLS frame */
-   if(rlen < 4)
-   {
-      if(rlen <=0)
-         perror("getSharkTrustResponse");
-      else
-         printf("SharkTrust response length error!\n");
-      terminate();
-   }
-   if(buf[0] != 0xFF || buf[1] != 0x55)
-   {
-      printf("Response is not from SharkTrust!\n"
-             "Note: this client is not designed to connect via a proxy.\n");
-      terminate();
-   }
-
-#if 0
-   /* If you want to save the raw response data */
-   FILE* fp = fopen("dump.bin","wb");
-   fwrite(buf,rlen,1,fp);
-   fclose(fp);
-#endif
-
-   switch(buf[2])
-   {
-      case RSP_SUCCESS: msg="Success"; break;
-      case RSP_FORBIDDEN: msg="Forbidden"; break;
-      case RSP_UNKNOWN: msg="Unknown"; break;
-      case RSP_PROCESSING: msg="Processing"; break;
-      case RSP_SERVERERROR: msg="ServerError"; break;
-      case RSP_CLIENTERROR: msg="ClientError"; break;
-      default:
-         printf("Invalid SharkTrust response %d\n",buf[2]);
-         terminate();
-   }
-   printf("SharkTrust response %d : %s\n",buf[2], msg);
-   switch(buf[2])
-   {
-      case RSP_FORBIDDEN: /* Invalid SHARK_TRUST_ZONE_KEY */
-      case RSP_CLIENTERROR: /* Your client is not working (bug) */
-         terminate();
-   }
-   return rlen;
+   struct hostent *host=gethostbyname(SHARK_TRUST_SERVICE_NAME);
+   struct sockaddr_in address;
+   int sock;
+   if(!host) return -1;
+   memset(&address, 0, sizeof(address));
+   address.sin_family=AF_INET;
+   address.sin_port=htons(443);
+   memcpy(&address.sin_addr, host->h_addr_list[0], sizeof(address.sin_addr));
+   sock=socket(AF_INET, SOCK_STREAM, 0);
+   if(sock>=0 && connect(sock, (struct sockaddr*)&address, sizeof(address)))
+   { close(sock); return -1; }
+   return sock;
 }
 
-
-/* Sleep N seconds
- */
-void secSleep(int seconds)
+/* TLS reads and writes need not transfer a complete protocol message. */
+static int writeAll(SSL *ssl, const char *data, size_t len)
 {
-   struct timespec tp;
-   tp.tv_sec = 1;
-   tp.tv_nsec = 0;
-   printf("Sleeping for %d seconds ", seconds);
-   fflush(stdout);
-   for( ; seconds > 0 ; seconds--)
+   while(len)
    {
-      nanosleep(&tp,0);
-      putchar('.');
-      fflush(stdout);
+      int n=SSL_write(ssl, data, (int)len);
+      if(n<=0) return -1;
+      data+=n; len-=(size_t)n;
    }
-   putchar('\n');
-}
-
-
-/* Register device and download certificate.
- */
-int main()
-{
-   SSL_CTX *ctx;
-   SSL *ssl;
-   int16_t slen;
-   char deviceKey[21];
-   char hostname[30]; /* Used as sub-domain name (for demo purposes) */
-   /* We have simplified things and made a huge buffer for response data */
-   uint8_t recBuffer[8000];
-   int ssock = openSharkTrustCon(&ctx, &ssl);
-   char* ipAddr = getIpAddr(ssock);
-   gethostname(hostname, sizeof(hostname));
-   printf("Local IP Addr: %s, hostname: %s \n",ipAddr,hostname);
-   FILE* fp = fopen("DEVICE.KEY", "rb");
-   if( !fp ) /* If not registered */
-   {
-     L_mustRegister:
-      printf("Sending Command: Register\n");
-      SSL_write(ssl, cmdRegister, sizeof(cmdRegister)-1);
-      writeHttpHeader(ssl,NULL,ipAddr);
-      writeHttpHeader(ssl,"X-Name",hostname);
-      SSL_write(ssl, "\n", 1); /* End HTTP header */
-      /*
-        Response can be one of: Success, Forbidden, ServerError, or
-        ClientError.
-        getSharkTrustResponse() manages: Forbidden and ClientError
-      */
-      getSharkTrustResponse(ssl, recBuffer, sizeof(recBuffer));
-      closeAll(ssl, ssock, ctx);
-      if(recBuffer[2]) /* Not OK: Can only be ServerError */
-      {
-         secSleep(70);
-         ssock = openSharkTrustCon(&ctx, &ssl);
-         goto L_mustRegister;
-      }
-      memcpy(deviceKey,recBuffer+4, 20);
-      deviceKey[20]=0;
-      printf("Our new device Key (X-Dev) %s\n",deviceKey);
-      fp = fopen("DEVICE.KEY", "wb");
-      fwrite(deviceKey, 20, 1, fp);
-      fclose(fp);
-      netConvU16((uint8_t*)&slen, recBuffer+24); /* Fetch device name length */
-      if(slen != strlen(hostname)) /* Named: hostname#, where # is a number */
-      {
-         printf("Another device is using %s; server selected name: ",hostname);
-         /* The sub-domain name used by the SharkTrust DNS service */
-         memcpy(hostname,recBuffer+26,slen);
-         hostname[slen]=0;
-         printf("%s\n",hostname);
-      }
-      ssock = openSharkTrustCon(&ctx, &ssl);
-   }
-   else
-   {
-      fread(deviceKey, 20, 1, fp);
-      fclose(fp);
-      deviceKey[20]=0;
-   }
-   for(;;)
-   {
-      int16_t certlen;
-      int32_t secondsUntilExp; /* When cert expires */
-      printf("Sending Command: GetCertificate\n");
-      SSL_write(ssl, cmdGetCert, sizeof(cmdGetCert)-1);
-      writeHttpHeader(ssl,NULL,ipAddr);
-      writeHttpHeader(ssl,"X-Dev",deviceKey);
-      SSL_write(ssl, "\n", 1); /* End HTTP header */
-      /*
-        Response can be any of the response codes
-        getSharkTrustResponse manages: Forbidden and ClientError
-      */
-      getSharkTrustResponse(ssl, recBuffer, sizeof(recBuffer));
-      closeAll(ssl, ssock, ctx);
-      switch(recBuffer[2])
-      {
-         case RSP_UNKNOWN: /* our device key has been invalidated by server */
-            ssock = openSharkTrustCon(&ctx, &ssl);
-            goto L_mustRegister;
-         case RSP_PROCESSING:
-         case RSP_SERVERERROR:
-            secSleep(70);
-            ssock = openSharkTrustCon(&ctx, &ssl);
-            continue;
-      }
-      /* Success */
-      netConvU32((uint8_t*)&secondsUntilExp, recBuffer+4);
-      printf("Certificate expires in %u days\n",secondsUntilExp/86400);
-      netConvU16((uint8_t*)&certlen, recBuffer+8);
-      printf("Saving certificate; length %d\n",certlen);
-      fp = fopen("DeviceCert.pem", "wb");
-      fwrite(recBuffer+10,certlen,1,fp);
-      fclose(fp);
-      fp = fopen("DeviceKey.pem", "wb");
-      netConvU16((uint8_t*)&slen, recBuffer+10+certlen);
-      printf("Saving certificate's private key; length %d\n",slen);
-      fwrite(recBuffer+12+certlen,slen,1,fp);
-      fclose(fp);
-      break;
-   }
-
-   /*
-     The following (optional) code fetches the full Domain Name (DN)
-    */
-   printf("Sending Command: GetDN\n");
-   ssock = openSharkTrustCon(&ctx, &ssl);
-   writeHttpHeader(ssl,NULL,"GetDN");
-   writeHttpHeader(ssl,"X-Dev",deviceKey);
-   SSL_write(ssl, "\n", 1); /* End HTTP header */
-   getSharkTrustResponse(ssl, recBuffer, sizeof(recBuffer));
-   closeAll(ssl, ssock, ctx);
-   if(RSP_SUCCESS == recBuffer[2])
-   {
-      netConvU16((uint8_t*)&slen, recBuffer+4); /* DN length */
-      recBuffer[6+slen]=0; /* convert to string */
-      printf("Your server URL: https://%s\n",recBuffer+6);
-      printf("Test DNS as follows: ping %s\n",recBuffer+6);
-   }
-
    return 0;
 }
 
+static int readExact(SSL *ssl, unsigned char *data, size_t len)
+{
+   while(len)
+   {
+      int n=SSL_read(ssl, data, (int)len);
+      if(n<=0) return -1;
+      data+=n; len-=(size_t)n;
+   }
+   return 0;
+}
+
+/* Read the binary response into the caller's fixed buffer. Check each length
+ * before reading its payload, including the separate PEM private-key length.
+ */
+static int readResponse(SSL *ssl, int command, unsigned char *response, size_t capacity)
+{
+   size_t prefix, payload, total;
+   if(readExact(ssl, response, 4) || response[0]!=0xFF || response[1]!=0x55 ||
+      response[3] || response[2]>CLIENTERROR) return -1;
+   if(response[2]!=SUCCESS) return response[2];
+   prefix=command==REGISTER ? 26 : command==GET_DN ? 6 : 10;
+   if(readExact(ssl, response+4, prefix-4)) return -1;
+   payload=read16(response+prefix-2);
+   total=prefix+payload+(command==GET_CERT ? 2 : 0);
+   if(!payload || total>capacity) return -1;
+   if(readExact(ssl, response+prefix, total-prefix)) return -1;
+   if(command==GET_CERT)
+   {
+      size_t keylen=read16(response+total-2);
+      if(!keylen || keylen>capacity-total || readExact(ssl, response+total, keylen))
+         return -1;
+   }
+   return SUCCESS;
+}
+
+/* Verify the portal's TLS certificate and hostname before sending credentials. */
+static int request(SSL_CTX *ctx, int command, const char *deviceKey,
+                   unsigned char *response, size_t capacity)
+{
+   int sock=openConnection(), rc=-1, n;
+   SSL *ssl=NULL;
+   char message[2048];
+   const char *ip=deviceIp;
+   struct sockaddr_in local;
+   socklen_t size=sizeof(local);
+   if(sock<0) goto done;
+   ssl=SSL_new(ctx);
+   if(!ssl || SSL_set_fd(ssl, sock)!=1 ||
+      SSL_set_tlsext_host_name(ssl, SHARK_TRUST_SERVICE_NAME)!=1 ||
+      SSL_set1_host(ssl, SHARK_TRUST_SERVICE_NAME)!=1 || SSL_connect(ssl)!=1)
+      goto done;
+   if(!ip)
+   {
+      if(getsockname(sock, (struct sockaddr*)&local, &size)) goto done;
+      ip=inet_ntoa(local.sin_addr);
+   }
+   n=snprintf(message, sizeof(message),
+      "GET /device/ HTTP/1.0\r\nHost: %s\r\nX-Key: %s\r\nX-Command: %s\r\n"
+      "X-CertType: X509\r\nX-IpAddress: %s\r\nX-Name: %s\r\n"
+      "X-Info: OpenSSL SharkTrust Client Demo\r\nX-Dev: %s\r\n\r\n",
+      SHARK_TRUST_SERVICE_NAME, zoneKey, commands[command], ip, deviceName, deviceKey);
+   if(n<0 || (size_t)n>=sizeof(message) || writeAll(ssl, message, (size_t)n)) goto done;
+   printf("Sending command: %s\n", commands[command]);
+   rc=readResponse(ssl, command, response, capacity);
+  done:
+   SSL_free(ssl);
+   if(sock>=0) close(sock);
+   if(rc<0) { fprintf(stderr, "Connection or response failed\n"); ERR_print_errors_fp(stderr); }
+   else if(rc) fprintf(stderr, "SharkTrust response: %d\n", rc);
+   return rc;
+}
+
+/* Simple demo storage. The application owns file protection, recovery from
+ * interrupted writes, and installing the certificate/key together in its server.
+ */
+static int saveFile(const char *path, const void *data, size_t len)
+{
+   FILE *fp=fopen(path, "wb");
+   int failed;
+   if(!fp) return -1;
+   failed=fwrite(data, 1, len, fp)!=len;
+   if(fclose(fp)) failed=1;
+   return failed ? -1 : 0;
+}
+
+int main(int argc, char **argv)
+{
+   char deviceKey[21]={0};
+   /* Increase this demo buffer if your CA returns a larger certificate chain. */
+   unsigned char response[8000];
+   SSL_CTX *ctx;
+   FILE *fp;
+   int command, rc, watch=0, exitCode=1;
+   if(argc==2 && !strcmp(argv[1], "--watch")) watch=1;
+   else if(argc!=1)
+   {
+      fprintf(stderr, "Usage: %s [--watch]\n", argv[0]);
+      return argc==2 && !strcmp(argv[1], "--help") ? 0 : 1;
+   }
+#ifdef SHARK_TRUST_OBFUSCATED_KEY
+   getZoneKey((unsigned char*)zoneKey);
+#else
+   {
+#ifdef SHARK_TRUST_ZONE_KEY
+      const char *key=SHARK_TRUST_ZONE_KEY;
+#else
+      const char *key=getenv("SHARK_TRUST_ZONE_KEY");
+#endif
+      if(!key || strlen(key)!=64)
+      { fprintf(stderr, "Set SHARK_TRUST_ZONE_KEY to the 64-character zone key\n"); return 1; }
+      memcpy(zoneKey, key, 64);
+   }
+#endif
+   fp=fopen("DEVICE.KEY", "rb");
+   if(fp)
+   {
+      if(fread(deviceKey, 20, 1, fp)!=1) deviceKey[0]=0;
+      fclose(fp);
+   }
+   command=deviceKey[0] ? GET_DN : REGISTER;
+   signal(SIGPIPE, SIG_IGN);
+   ctx=SSL_CTX_new(TLS_client_method());
+   if(!ctx) return 1;
+   SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
+   if(SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION)!=1 ||
+      (caFile ? SSL_CTX_load_verify_locations(ctx, caFile, NULL) : SSL_CTX_set_default_verify_paths(ctx))!=1)
+   { fprintf(stderr, "Cannot load portal trust store\n"); goto done; }
+   for(;;)
+   {
+      unsigned delay=70;
+      rc=request(ctx, command, deviceKey, response, sizeof(response));
+      if(rc==FORBIDDEN || rc==CLIENTERROR) break;
+      if(rc==UNKNOWN) { deviceKey[0]=0; command=REGISTER; }
+      else if(rc==SUCCESS)
+      {
+         if(command==REGISTER)
+         {
+            if(saveFile("DEVICE.KEY", response+4, 20))
+            { fprintf(stderr, "Cannot save device registration\n"); break; }
+            memcpy(deviceKey, response+4, 20);
+            printf("Device registered; key saved\n");
+            command=GET_DN;
+            continue;
+         }
+         if(command==GET_DN)
+         {
+            printf("Your server URL: https://%.*s\n", (int)read16(response+4), response+6);
+            command=GET_CERT;
+            continue;
+         }
+         if(read32(response+4))
+         {
+            unsigned certLen=read16(response+8), keyLen=read16(response+10+certLen);
+            if(saveFile("DeviceCert.pem", response+10, certLen) ||
+               saveFile("DeviceKey.pem", response+12+certLen, keyLen))
+            { fprintf(stderr, "Cannot save certificate or private key\n"); break; }
+            printf("Saved DeviceCert.pem and DeviceKey.pem; expires in %u seconds\n", read32(response+4));
+            if(!watch) { exitCode=0; break; }
+            /* Fetch portal-side ARI renewals within 12 hours, sooner near expiry. */
+            delay=read32(response+4)/3;
+            if(delay>43200) delay=43200;
+            if(!delay) delay=1;
+         }
+      }
+      printf("Next fetch in %u seconds\n", delay);
+      sleep(delay);
+   }
+  done:
+   SSL_CTX_free(ctx);
+   return exitCode;
+}

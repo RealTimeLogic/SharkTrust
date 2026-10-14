@@ -1,0 +1,21 @@
+[Unit]
+Description=Mako Server : SharkTrust
+After=network-online.target named.service
+Wants=network-online.target named.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStartPre=/bin/sh -c '[ -x /usr/local/bin/mako ] || (echo "Missing or not executable: /usr/local/bin/mako" >&2; exit 1)'
+WorkingDirectory=/opt/SharkTrust
+ExecStartPre=/usr/sbin/rndc status
+ExecStart=/usr/local/bin/mako -s -c /opt/SharkTrust/mako.conf
+UMask=0077
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=200000
+SyslogIdentifier=SharkTrust
+
+[Install]
+WantedBy=multi-user.target

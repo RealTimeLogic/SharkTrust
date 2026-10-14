@@ -1,0 +1,49 @@
+homeio='/opt/SharkTrust'
+port=80
+sslport=443
+apps = {
+   { prio=1, name='', path='/opt/SharkTrust/SharkTrust.zip'},
+}
+
+-- Set the portal administrator with -credentials after installation.
+tracelogger=false
+realm={{ realm | to_json(ensure_ascii=False) }}
+
+log={
+   logerr = true,
+   signature={{ emailsignature | to_json(ensure_ascii=False) }},
+   smtp={
+      subject={{ emailsubject | to_json(ensure_ascii=False) }},
+      from = {{ emailfrom | to_json(ensure_ascii=False) }},
+      to = {{ emailto | to_json(ensure_ascii=False) }},
+      server = {{ emailserver | to_json(ensure_ascii=False) }},
+      port = {{ emailport }},
+      useauth = {{ emailuseauth | bool | lower }},
+      consec = {{ emailconsec | to_json(ensure_ascii=False) }},
+      user = {{ emailuser | to_json(ensure_ascii=False) }},
+      password = {{ emailpassword | to_json(ensure_ascii=False) }},
+   }
+}
+
+
+settings={
+   ns1={{ settingsns1 | to_json(ensure_ascii=False) }},
+   ns2={{ settingsns2 | to_json(ensure_ascii=False) }},
+   dn={{ settingsdn | to_json(ensure_ascii=False) }},
+{% if settingsip | length > 0 %}
+   ip={{ settingsip | to_json }},
+{% endif %}
+   acme={
+      production={{ settingsacmeproduction | bool | lower }},
+      rsa={{ settingsacmersa | bool | lower }},
+{% if settingsacmedirectoryurl | length > 0 %}
+      directoryUrl={{ settingsacmedirectoryurl | to_json(ensure_ascii=False) }},
+{% endif %}
+{% if settingsacmeproductionurl | length > 0 %}
+      productionUrl={{ settingsacmeproductionurl | to_json(ensure_ascii=False) }},
+{% endif %}
+{% if settingsacmestagingurl | length > 0 %}
+      stagingUrl={{ settingsacmestagingurl | to_json(ensure_ascii=False) }},
+{% endif %}
+   }
+}

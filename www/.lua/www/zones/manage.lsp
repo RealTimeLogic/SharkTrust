@@ -1,29 +1,29 @@
 <?lsp
 local wanT = app.rwWanT(page.zkey) or {}
 if next(wanT) then
-   response:write'<h1>All Registered Devices</h1>'
+   _emit'<h2>All Registered Devices</h2>'
 else
-   response:write'<h1>No Devices</h1><p>No registered devices!</p>'
+   _emit'<h2>No Devices</h2><p>No registered devices!</p>'
    return
 end
 for wip, wanT in pairs(wanT) do
 ?>
 
-<div class="card card-body bg-light">
+<div class="card card-body">
 <h2><?lsp=wip?></h2>
-<table class="table table-striped table-bordered">
-  <thead class="thead-dark"><th>Name</th><th>IP Addr</th><th>Details</th></thead>
+<div class="table-wrap"><table class="table device-table table-striped table-bordered">
+  <thead class="table-heading"><tr><th>Name</th><th>IP Addr</th><th>Details</th></tr></thead>
   <tbody class="devtab">
 <?lsp
    local zname=page.zname
    for dname,ip in pairs(wanT) do
-      response:write('<tr><td class="name">',dname,
+      _emit('<tr><td class="name">',dname,
                      '</td><td>',ip,
-                     '</td><td class="info"><div class="arrow darrow"></div></td></tr>')
+                     '</td><td><button type="button" class="info" aria-label="Show device details" aria-expanded="false"><span class="arrow darrow"></span></button></td></tr>')
    end
 ?>
   </tbody>
-</table>
+</table></div>
 </div>
 <?lsp end ?>
 

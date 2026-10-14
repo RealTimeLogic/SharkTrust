@@ -1,34 +1,65 @@
 {
-    "pages":
-    {
-        "." : {
-            "path" : "index.lsp",
-            "title" : "SharkTrust",
-            "nologin" : true
+    "pages": {
+        ".": {
+            "path": "index.lsp",
+            "title": "SharkTrust",
+            "nologin": true
         },
-        "validate" : {
-            "path" : "validate.lsp",
-            "title" : "Validate",
-            "nologin" : true
+        "validate": {
+            "path": "validate.lsp",
+            "title": "Validate",
+            "nologin": true
         },
-        "login" : {
-            "path" : "login.lsp",
-            "title" : "SharkTrust Login",
-            "nologin" : true
+        "login": {
+            "path": "login.lsp",
+            "title": "SharkTrust Login",
+            "nologin": true
         },
-        "manage" : {
-            "path" : "manage.lsp",
-            "title" : "Manage Zones"
+        "manage": {
+            "path": "manage.lsp",
+            "title": "Manage Zones"
         },
-        "zone" : {
-            "path" : "zone.lsp",
-            "title" : "Manage Zone"
+        "zone": {
+            "path": "zone.lsp",
+            "title": "Manage Zone"
+        },
+        "verify": {
+            "path": "verify.lsp",
+            "title": "Verify sensitive access",
+            "role": "admin",
+            "shared": true
+        },
+        "email": {
+            "path": "email.lsp",
+            "title": "Test email"
+        },
+        "status": {
+            "path": "status.lsp",
+            "title": "Certificate service"
         }
     },
-
-    "menu": 
-    [
-        {"link":".", "name":"Register", "visible": true},
-        {"link": "manage","name": "Manage"}
+    "menu": [
+        {
+            "link": ".",
+            "name": "Register",
+            "visible": true
+        },
+        {
+            "link": "login",
+            "name": "Sign in",
+            "visible": true
+        },
+        {
+            "link": "manage",
+            "name": "Manage"
+        },
+        {
+            "link": "email",
+            "name": "Test email"
+        },
+        {
+            "link": "status",
+            "name": "Certificate service"
+        }
     ]
 }

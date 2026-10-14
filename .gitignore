@@ -1,0 +1,16 @@
+/tests/development/
+__pycache__/
+*.pyc
+/tests/
+*~
+
+# Client executables and per-zone/device secrets.
+/examples/getzkey.ch
+/examples/DEVICE.KEY*
+/examples/DeviceCredentials.pem*
+/examples/DeviceCert.pem
+/examples/DeviceKey.pem
+/examples/SharkTrust-Client
+/examples/SharkTrust-Client.exe
+/examples/SharkTrust-Client-Obfuscated-Key
+/examples/SharkTrust-Client-Obfuscated-Key.exe

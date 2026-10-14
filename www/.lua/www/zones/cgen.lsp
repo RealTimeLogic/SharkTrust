@@ -1,12 +1,16 @@
 <?lsp
+if not app.sensitive.consume(app.sensitiveSession(request,page.zkey),"cgen") then
+   return response:sendredirect"/verify?purpose=cgen"
+end
 
 local fmt=string.format
 
 response:reset()
+response:setheader("Cache-Control","no-store")
 response:setheader("Content-Disposition", 'attachment; filename="getzkey.ch"')
 response:setcontenttype("text/plain; charset=utf-8")
 
-local zkey=app.rcZonesT()[request:header"host"]
+local zkey=app.rcZonesT()[app.host(request)]
 
 
 
@@ -17,10 +21,16 @@ for x in zkey:gmatch("%x%x") do
 end
 
 local zkxT={}
+local function shuffle(list)
+   for i=#list,2,-1 do
+      local j=ba.rnd(1,i)
+      list[i],list[j]=list[j],list[i]
+   end
+end
 for i=1,32 do
    local x = ba.rnd(1,0xFE)
    local k=zkT[i]
-   zkxT[ba.rnd()]={
+   zkxT[i]={
       k=k,
       ix=i,
       c=k~x,
@@ -29,35 +39,37 @@ for i=1,32 do
 end
 
 local xorT={}
-for _,v in pairs(zkxT) do
-   xorT[ba.rnd()]={ix=v.ix, x=v.x}
+for i,v in ipairs(zkxT) do
+   xorT[i]={ix=v.ix, x=v.x}
 end
+shuffle(zkxT)
+shuffle(xorT)
 
 local dataT={"\t"..ba.rnd(1,0xFF)}
 local rndIxT={}
 local keyIxT={}
 local xorIxT={}
-local ixK,ixX,kT,xT
 local ix=0
 for i=1,32 do
-   ixK,kT=next(zkxT,ixK)
+   local kT=zkxT[i]
    ix=ix+1
    kT.dIx=ix
    table.insert(dataT, fmt("\t0x%02X /* %02d ix:%02d %02X = %02X ^ %02X */",
                            kT.c, kT.dIx, kT.ix, kT.c, kT.k, kT.x))
-   ixX,xT=next(xorT,ixX)
+   local xT=xorT[i]
    ix=ix+1
    xT.dIx=ix
    table.insert(dataT, fmt("\t0x%02X /* %02d ix:%02d XOR mask */",
                            xT.x, xT.dIx, xT.ix))
-   rndIxT[ba.rnd()]= i
+   rndIxT[i]=i
    keyIxT[kT.ix]=kT
    xorIxT[xT.ix]=xT
 end
+shuffle(rndIxT)
 
 
 local codeT={}
-for _,ix in pairs(rndIxT) do
+for _,ix in ipairs(rndIxT) do
    local kT,xT=keyIxT[ix],xorIxT[ix]
    table.insert(codeT, fmt("\tbuf[%2d] = zKeyData[%2d] ^ zKeyData[%2d]; /* %02X = %02X ^ %02X */",
                            (ix-1)*2, kT.dIx,xT.dIx, kT.k, kT.c, kT.x))

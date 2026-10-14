@@ -1,180 +1,236 @@
-## C Source Code Examples
+# SharkTrust C client examples
 
+SharkTrust gives an embedded web server a domain name and a TLS certificate.
+The portal registers the device, updates its DNS address, and obtains and renews
+the certificate through the configured ACME certificate authority (CA). These
+clients download the certificate and private key over an authenticated TLS
+connection. They do not implement ACME themselves.
 
-# SharkTrust Client Examples
+Use the OpenSSL examples below to fetch credentials for an existing web server.
+The [Minnow Server example](#minnow-server-example) also runs an HTTPS server and
+installs downloaded credentials in memory. These are small integration examples;
+adapt their socket, storage, and scheduling code to your application.
 
-This directory includes two ready-to-compile and run test programs. These programs register with a SharkTrust portal, wait for the certificate to be generated, and save the Let's Encrypt signed certificate and private key to the directory where the examples are running.
+## Prepare your zone
 
-## Step 1: Compile the Program
+Before running a client, configure a SharkTrust portal and register a DNS zone
+you control. See [portal configuration](../doc/portal.md) for public and private
+on-premises installations and CA selection.
 
-To compile the `SharkTrust-Client` program, run the following command:
+1. Delegate the zone to the DNS servers specified by your portal operator.
+   For a subdomain, add the delegation at its parent zone. Wait until the
+   delegation resolves correctly; there is no fixed propagation time.
+2. Open the portal, register the zone, and sign in as its owner.
+3. Reveal the zone key or download the generated C header. Both actions require
+   the verification code sent to the owner's email address.
+4. Create a private working directory for this device and zone. Do not share
+   its registration file with another device or reuse it with another zone.
 
-```bash
-gcc -o SharkTrust-Client SharkTrust-Client-Obfuscated-Key.c -lssl -lcrypto
+The prepared test zone is **`st.sharkssl.com`**. The clients still connect to
+**`sharktrust.realtimelogic.com`**. Once the portal and zone are ready, use the
+zone key or generated header for `st.sharkssl.com` to receive a name such as
+`device.st.sharkssl.com`. The zone key selects the namespace; the client does
+not append the zone name itself. Use a new working directory when changing zones.
+
+The device's IPv4 address must be reachable from the browser that will access
+it. A private LAN address is expected for an intranet web interface. Publicly
+trusted certificates require a publicly valid domain and successful CA
+validation, even when the portal or device is on premises. A private CA requires
+its trust root on the browsers and other clients that use the device.
+
+## Build the OpenSSL client
+
+The examples require a POSIX environment, a C compiler, and OpenSSL 1.1.1 or
+later development headers and libraries. On Windows, use WSL with these
+dependencies installed. Run the build commands from this `examples` directory.
+
+Edit these settings near the top of `SharkTrust-Client.c` before building either
+variant:
+
+| Setting | Type, default, and purpose |
+| --- | --- |
+| `SHARK_TRUST_SERVICE_NAME` | DNS hostname string macro; defaults to `sharktrust.realtimelogic.com`, HTTPS port 443. Change for a private portal. |
+| `caFile` | Optional PEM CA file path string; `NULL` uses OpenSSL's system trust roots. |
+| `deviceName` | DNS-label string; defaults to `"device"`. Use 1-63 lowercase letters, digits, or hyphens, with no leading or trailing hyphen. The portal may add a numeric suffix. |
+| `deviceIp` | Optional IPv4 string; `NULL` uses the portal connection's local address. Set it when the device is reachable at a different address. |
+
+```sh
+# Build the plain-key variant. No zone credential is needed to compile it.
+cc -std=c99 -Wall -Wextra -o SharkTrust-Client SharkTrust-Client.c -lssl -lcrypto
 ```
 
-## Step 2: Run the Program
-Execute the compiled program:
+The generated-key variant uses the same implementation. Download your zone's
+`getzkey.ch` into this directory before building it:
+
+```sh
+# Compile this entry point alone; it includes SharkTrust-Client.c.
+cc -std=c99 -Wall -Wextra -o SharkTrust-Client-Obfuscated-Key \
+  SharkTrust-Client-Obfuscated-Key.c -lssl -lcrypto
+```
+
+The repository no longer supplies a working shared demo zone key. The generated
+header is excluded by `.gitignore`; keep it private. Obfuscation makes a key
+less apparent in an executable; it does not prevent extraction from firmware
+or a running process.
+
+## Fetch a certificate
+
+Run one client process per private working directory. The following Bash
+example uses the plain-key variant and prompts without placing the zone key in
+the command history:
 
 ```bash
+# Use an absolute executable path if your working directory is elsewhere.
+umask 077
+read -r -s -p 'Zone key: ' SHARK_TRUST_ZONE_KEY
+printf '\n'
+export SHARK_TRUST_ZONE_KEY
 ./SharkTrust-Client
-```
-You should see output similar to the following:
-
-```bash
-Local IP Addr: 192.168.1.100, hostname: NUC
-Sending Command: Register
-SharkTrust response 0 : Success
-Our new device Key (X-Dev) BED9E41A53647B58A5F1
-Sending Command: GetCertificate
-SharkTrust response 3 : Processing
-Sleeping for 70 seconds ......................................................................
-Sending Command: GetCertificate
-SharkTrust response 3 : Processing
-Sleeping for 70 seconds ......................................................................
-Sending Command: GetCertificate
-SharkTrust response 0 : Success
-Certificate expires in 89 days
-Saving certificate; length 2873
-Saving certificate's private key; length 47
-Sending Command: GetDN
-SharkTrust response 0 : Success
-```
-You can now load the generated certificate and private key into your web server.
-## Step 3: Study the code
-Carefully review the comments in both SharkTrust-Client-Obfuscated-Key.c and SharkTrust-Client.c for further details.
-
-## Ready-to-Run Minnow Web Server Example
-
-The SharkTrust client examples above download and save the private key and certificate from the SharkTrust portal, but do not embed a web server within the SharkTrust client example code. However, the [SharkSSL GitHub repository](https://github.com/RealTimeLogic/SharkSSL) includes an example that combines the SharkTrust client with the [Minnow Web Server](https://realtimelogic.com/products/sharkssl/minnow-server/), automatically installing the certificate and private key in the web server.
-
-### Running the Example
-
-To run the SharkTrust Minnow Server example, follow these steps:
-
-```bash
-git clone https://github.com/RealTimeLogic/SharkSSL.git
-cd SharkSSL/build/
-./SharkTrust
+unset SHARK_TRUST_ZONE_KEY
 ```
 
-When the example runs successfully, you should see output similar to the following:
+For the generated-key variant, run `./SharkTrust-Client-Obfuscated-Key`;
+no environment variable is needed. Both accept `--watch` to keep fetching
+renewals, or `--help` to print usage without connecting. Portal, CA, name, and
+address settings are edited in the source.
 
-```
-./SharkTrust
-SharkTrust and Minnow Server Demo.
+`SHARK_TRUST_ZONE_KEY` is a required environment string for the plain variant:
+exactly 64 hexadecimal characters, without a newline. A string literal supplied
+as a C macro of the same name takes precedence, for existing integrations.
+Environment variables and compiled credentials are accessible to sufficiently
+privileged local users.
 
-Bind error: port 443
-WebSocket server listening on 9443
-Sending Command: Register
-SharkTrust response 0 : Success
-Our new device Key (X-Dev) 80955398A9FA9647497F
-Sending Command: GetDN
-SharkTrust response 0 : Success
---------------------------------------------
-Your server URL: https://minnow.equip.run
-Test DNS as follows: ping minnow.equip.run
---------------------------------------------
-Sending Command: GetCertificate
-SharkTrust response 3 : Processing
-Certificate not ready
-Installing embedded default certificate
-Next SharkTrust HTTP poll in 70 seconds
-Minnow Server is running and waiting for connections.
-Sending Command: GetCertificate
-SharkTrust response 0 : Success
-Certificate expires in 89 days
-Installing certificate fetched from SharkTrust
-```
+A first run registers the device, prints its assigned URL, and polls until a
+certificate is ready. Later runs reuse the saved device key. The default mode
+exits with status 0 after saving the certificate and key. Setup/write errors
+and portal `Forbidden` or `ClientError` responses exit nonzero.
+Connection errors, incomplete responses, and pending issuance retry after
+70 seconds. Use Ctrl+C to stop waiting.
 
-Once the certificate is installed, navigate to https://SUBDOMAIN.equip.run:9443 to access your server.
+### Files and server reload
 
+The client writes these files in its current directory:
 
-## The SharkTrust Demo Portal
+| File | Contents and lifetime |
+| --- | --- |
+| `DEVICE.KEY` | The 20-character device credential. Keep it across restarts, private to this device and zone. A missing or short file triggers registration. |
+| `DeviceCert.pem` | The downloaded PEM certificate chain. |
+| `DeviceKey.pem` | The corresponding PEM private key. |
 
-The following instructions are for using our demo portal:
+The example uses standard C file I/O and writes the two PEM files separately.
+Your application owns file protection, recovery from interrupted writes, and
+loading the certificate and key together into its HTTPS server. The client
+verifies the portal's TLS certificate and hostname before sending credentials;
+it saves the returned PEM data without parsing it again.
 
-1. Open SharkTrust-Client.c in an editor and study the code
-2. Navigate to [freenom.com](https://freenom.com/) and sign in / create an account
-3. Register a free domain name; Any name will do
-4. Click Services -> My Domains -> Manage Domain
-5. Click Management Tools -> Nameservers
-6. Set Nameserver 1 to ns1.realtimelogic.com and Nameserver 2 to ns2.realtimelogic.com
-7. Click Change Nameservers, and **wait one hour before the next step**
-8. Navigate to Real Time Logic's SharkTrust demo portal: [https://sharktrust.realtimelogic.com/](https://sharktrust.realtimelogic.com/)
-9. Enter the domain name registered at freenome, and sign up for the portal
-10. Follow the instructions provided by the SharkTrust demo portal
-11. When you receive the email with the Zone Key, copy the key, and paste the key into SharkTrust-Client.c **[1]**
+The response buffer is 8000 bytes, as in the original example. Increase it in
+`main()` if your certificate chain and private key need more space. Oversized
+or incomplete responses are rejected. Socket calls are blocking and use the
+operating system's timeouts.
 
-You may find the information provided in the
-[Barracuda App Server's Let's Encrypt tutorial](https://makoserver.net/articles/Lets-Encrypt)
-useful if you are new to domain names and configuring name servers for
-a domain name. The tutorial goes into detail on how DNS and name
-servers work.
+### Renewal and ARI
 
-Our demo portal is purely designed for testing/learning purposes and
-should not be used for deployment. In the end, you must set up your
-own SharkTrust server and not use our demo portal.
+The portal uses ACME Renewal Information (ARI) when the CA supports it, with
+a lifetime-aware fallback. See [portal renewal scheduling](../doc/portal.md).
+The client only retrieves the resulting certificate.
 
-The online portal creates a unique registration key after completing
-the "new zone" registration process. A zone is a domain name and the
-registration key is known as the Zone Key.
+With `--watch`, a successful fetch schedules the next fetch after the smaller
+of **12 hours** and **one third of the returned remaining lifetime**, with a
+one-second minimum. It does not assume a 90-day certificate or sleep until a
+fixed number of days before expiration. This lets it collect an early ARI
+replacement within the polling interval while connectivity is available.
+Network or issuance failures retry after 70 seconds. A response reporting zero
+remaining lifetime is retried without saving its certificate.
 
-The Zone Key must be used by the SharkTrust client program connecting
-to the online portal. The following instructions, which simulates a
-scenario where your end users register their own zone and create their
-own zone key, must be performed prior to compiling the example C code.
-
-
-**[1]**
-Open the C code in any text editor and scroll down until you
-see: **#define SHARK_TRUST_ZONE_KEY**. Replace the
-**the-64-byte-key** string with your zone key. Remove
-the **#error** directive on the line below. Compile
-the code as instructed per comments inside the C source code
-example.
-
-You may run the executable from the command line as soon as you
-have compiled the source code with a valid zone key. The example
-connects to the online SharkTrust demo portal and uses commands
-as specified in the SharkTrust Specification.
-
-
-## Security and Private Data
-
-The certificate's private key must be protected. We recommend
-downloading the certificate and the certificate's private key each
-time the device starts and to store the certificate data in RAM
-memory and not persistently on a disk. The pre-compiled example
-detailed below follows this design guideline.
-
-The zone key must also be protected and our example, which
-includes the Zone Key as a string in the executable is not secure
-at all. It is very easy to extract the zone key from the example
-program you compiled. Run the following on the command line to
-print the zone key:
-
-```
-strings SharkTrust-Client.exe | grep 'X-Key'
+```sh
+# Fetch renewed credentials continuously; your server owns installation.
+./SharkTrust-Client --watch
 ```
 
-**Figure 3: Extracting secrets from anexecutable**
+Fetching a certificate also refreshes the registered address. If your address
+can change between polls, arrange a prompt fetch after the change.
 
-The [strings command](https://linux.die.net/man/1/strings) prints all
-strings in a binary file. The above command sends all strings to grep,
-where we use grep to search for the Zone Key. As we explained above,
-embedding the zone key in the executable/firmware is used for the use
-case scenario when the device manufacturer wants all end-users to use
-the same domain name e.g. -- https://xxx.product.company.com, where
-xxx is the sub-domain name unique to the device. The Zone Key must be
-protected when hard coded in the executable/firmware and the example
-SharkTrust-Client.c does not do a good job protecting this key.
+## Private portal and CA
 
-There are several obfuscating techniques that may be applied to make
-it virtually impossible to extract the key from the binary file. The
-online SharkTrust service includes C code generation for obfuscating
-the Zone Key.
+Set `SHARK_TRUST_SERVICE_NAME` to your private portal's DNS hostname and `caFile`
+to the PEM CA file path before building. Set `deviceIp` if the connection's
+local address is not the address browsers should use.
 
-The example SharkTrust-Client-Obfuscated-Key.c shows how to use the
-auto generated obfuscated key. The source code includes build
-instructions in the comment at the top of the file.
+Use the CA bundle that signs the **portal's HTTPS certificate**. This can differ
+from the CA issuing device certificates. Changing the portal's ACME directory
+does not change the device protocol. The client must trust the portal, and the
+browser must separately trust the issuer of the downloaded device certificate.
+Keep the host's UTC clock correct for certificate validity checks. Do not
+disable verification to work around a missing trust root or an incorrect name.
+
+## Minnow Server example
+
+The SharkSSL SDK's `examples/SharkTrust.c` combines this device protocol with
+the Minnow Server HTTPS/WebSocket demo. It uses SharkSSL's compact certificate
+format instead of PEM and keeps the downloaded certificate and key in RAM.
+It persists only `DEVICE.KEY`. This is a small integration example: adapt
+device naming, addressing, storage, and scheduling to your firmware.
+
+Download your zone's `getzkey.ch` into the SDK's `examples` directory. Build the
+library, socket adapter, and example with `SHARKSSL_CHECK_DATE=1`; a correct
+UTC clock is required. The Visual Studio `SharkTrust` project sets this option.
+For the source SDK Makefile, run from the SDK root:
+
+```sh
+# Rebuild the library and client with the same date-checking configuration.
+make -C build -B XCFLAGS=-DSHARKSSL_CHECK_DATE=1 libSharkSSL.a SharkTrust
+```
+
+Run the executable from a private working directory after DNS is ready. It
+tries HTTPS port 443, then ports 9443-9459. Use the printed device hostname
+and listening port, for example `https://device.st.sharkssl.com:9443`.
+The embedded development certificate can cause a browser warning until the
+first portal certificate has been installed.
+
+The example uses the same 12-hour/lifetime polling policy as the OpenSSL
+watch mode, using SharkSSL's existing `baGetUnixTime()` clock. Clock adjustments
+also affect this demo's polling deadline. When a fetch is due, it closes the
+demo WebSocket and the page reconnects automatically. This permits reuse of
+TLS memory between the client and server. A failed fetch or installation
+retains the previous certificate and retries after 70 seconds. The demo page
+requires no external JavaScript download.
+
+### SharkSSL configuration and embedded ports
+
+These optional C macros configure the example. String-valued macros must
+expand to C string literals.
+
+| Macro | Type, default, and purpose |
+| --- | --- |
+| `SHARK_TRUST_SERVICE_NAME` | DNS hostname string; defaults to `sharktrust.realtimelogic.com`, port 443. Used for connection, Server Name Indication (SNI), and hostname verification. |
+| `SHARK_TRUST_ZONE_KEY_HEADER` | Include-path string; defaults to `getzkey.ch`. The generated header supplies `getZoneKey`. Also available in the OpenSSL generated-key variant. |
+| `SHARK_TRUST_CA_HEADER` and `SHARK_TRUST_CA_LIST` | Set together for a private portal. The first is an include-path string; the second is the generated `SharkSslCAList` expression. Defaults are `certificates/CA_ISRG_Root_X1.h` and `sharkSSL_CA_ISRG_Root_X1`. |
+| `SHARKSSL_CHECK_DATE` | Required integer value `1` for the example and all linked SharkSSL/socket-adapter code. |
+
+The example passes the `mainTask` function address, converted to `U32`, to
+`sharkssl_entropy` as a demonstration seed. A function address is predictable
+and does not provide cryptographic entropy. Before using TLS in a product,
+replace this call with proper RNG seeding from your platform's entropy source.
+The application is responsible for supplying sufficient entropy before any
+TLS connections are created.
+
+The host helpers use the first hostname label as the device name and the
+portal connection's local IPv4 address as the device address. Adapt
+`deviceName()` and `getIpAddr()` for your target. The demo stores the device
+key with standard C file I/O; your application owns storage protection and
+recovery from interrupted writes.
+
+For `HOST_PLATFORM=0`, supply these platform functions along with the existing
+SharkSSL socket and UTC-time ports:
+
+| Function | Contract |
+| --- | --- |
+| `const char* deviceName(void)` | Return a persistent, NUL-terminated valid DNS label, 1-63 characters. |
+| `char* getIpAddr(SOCKET* sock)` | Borrow the connected socket; return a NUL-terminated IPv4 string that remains valid while its header is copied. |
+| `int readDeviceKey(char deviceKey[20])` | Copy the saved 20-byte device key and return 0, or return nonzero to register the device. |
+| `void saveDeviceKey(char deviceKey[20])` | Store the 20-byte device key for reuse after restart. |
+| `void terminate(void)` | Stop the task or process on a fatal configuration/storage error. Must not return. |
+
+The generated `void getZoneKey(unsigned char* output)` fills exactly 64
+hexadecimal bytes in caller-owned storage and does not append a NUL byte.
+Keep the generated credential and device key out of logs.

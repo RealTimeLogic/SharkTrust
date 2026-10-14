@@ -3,16 +3,17 @@
  if ispost then
     local data=request:data()
     if app.checkAdminCredentials(data.ba_username, data.ba_password) then
-       request:session(true).authenticated=true
-       response:sendredirect"manage"
+       app.login(request,nil,data.ba_username)
+       return response:sendredirect"manage"
     end
     ba.sleep(1000)
  end 
 ?>
-<h1>Admin Login</h1>
-<div class="card card-body bg-light">
+<h2>Admin Login</h2>
+<div class="card card-body">
   <?lsp= ispost and '<div class="alert alert-danger" role="alert">Incorrect credentials!</div>' or '' ?>
   <form method="post" id="login_form">
+<input type="hidden" name="csrf" value="<?lsp=page.csrf?>">
     <div class="form-group">
       <label for="Username">Username:</label>
       <input type="text" name="ba_username" class="form-control" id="Username" placeholder="Enter your E-Mail address" autofocus required tabindex="1">

@@ -1,41 +1,90 @@
 {
-    "pages":
-    {
-        "." : {
-            "path" : "index.lsp",
-            "title" : "Available Devices",
-            "nologin" : true
+    "pages": {
+        ".": {
+            "path": "index.lsp",
+            "title": "Available Devices",
+            "nologin": true
         },
-        "login" : {
-            "path" : "login.lsp",
-            "title" : "SharkTrust Login",
-            "nologin" : true
+        "login": {
+            "path": "login.lsp",
+            "title": "SharkTrust Login",
+            "nologin": true
         },
-
-        "manage" : {
-            "path" : "manage.lsp",
-            "title" : "Manage Devices"
+        "manage": {
+            "path": "manage.lsp",
+            "title": "Manage Devices"
         },
-        "settings" : {
-            "path" : "settings.lsp",
-            "title" : "Settings"
+        "settings": {
+            "path": "settings.lsp",
+            "title": "Settings",
+            "role": "admin"
         },
-        "cgen" : {
-            "path" : "cgen.lsp",
-            "title" : "Generate C Code"
+        "cgen": {
+            "path": "cgen.lsp",
+            "title": "Generate C Code",
+            "role": "admin"
         },
-        "recover" : {
-            "path" : "recover.lsp",
-            "title" : "Recover Account",
-            "nologin" : true
+        "recover": {
+            "path": "recover.lsp",
+            "title": "Recover Account",
+            "nologin": true
+        },
+        "verify": {
+            "path": "verify.lsp",
+            "title": "Verify sensitive access",
+            "role": "admin",
+            "shared": true
+        },
+        "users": {
+            "path": "users.lsp",
+            "title": "Users and sign-in",
+            "role": "admin"
+        },
+        "cleanup": {
+            "path": "cleanup.lsp",
+            "title": "Inactive devices",
+            "role": "operator"
+        },
+        "sso": {
+            "path": "sso.lsp",
+            "title": "Microsoft Entra sign-in",
+            "nologin": true
         }
     },
-
-    "menu": 
-    [
-        {"link":".", "name":"Devices", "visible": true},
-        {"link":"login", "name": "Login", "visible": true},
-        {"link": "manage","name": "Manage"},
-        {"link": "settings","name": "Settings"}
+    "menu": [
+        {
+            "link": ".",
+            "name": "Devices",
+            "visible": true
+        },
+        {
+            "link": "login",
+            "name": "Login",
+            "visible": true
+        },
+        {
+            "link": "manage",
+            "name": "Manage"
+        },
+        {
+            "link": "settings",
+            "name": "Settings",
+            "role": "admin"
+        },
+        {
+            "link": "cgen",
+            "name": "Client integration",
+            "role": "admin"
+        },
+        {
+            "link": "users",
+            "name": "Users and sign-in",
+            "role": "admin"
+        },
+        {
+            "link": "cleanup",
+            "name": "Inactive devices",
+            "role": "operator"
+        }
     ]
 }

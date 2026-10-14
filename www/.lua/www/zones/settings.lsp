@@ -1,18 +1,20 @@
 <?lsp
-local zname=request:header"host"
+local zname=app.host(request)
 if request:method() == "POST" and request:data"terminate" == "yes" then
-  app.deleteZone(zname)
-  response:sendredirect("https://"..app.settingsT.dn)
+  app.deleteZone(zname,app.writeRedirect(response,app.serverAddr()))
+  return
 end
 ?>
-<h1>Settings</h1>
-<div class="card card-body bg-light">
-  <div class="alert alert-success" role="alert">Zone Key: <?lsp=app.rcZonesT()[zname]?></div>
+<div class="card card-body">
+  <?lsp if app.sensitive.consume(app.sensitiveSession(request,page.zkey),"secret") then ?>
+  <div class="alert alert-success" role="alert">Zone Key: <?lsp=page.zkey?></div>
+  <?lsp else ?><a class="btn btn-primary" href="/verify?purpose=secret">Verify by email to show zone key</a><?lsp end ?>
 
   <div class="form-group">&nbsp;</div>
   <form method="post">
+<input type="hidden" name="csrf" value="<?lsp=page.csrf?>">
     <div class="form-group">
-      <input type="submit" class="btn btn-primary btn-block" id="termbut" value="Terminate Account"/>
+      <input type="submit" class="btn btn-danger btn-block" id="termbut" value="Terminate Account"/>
       <input type="hidden" id="terminate" name="terminate" value="no"/>
     </div>
   </form>

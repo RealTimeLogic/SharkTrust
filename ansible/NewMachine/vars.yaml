@@ -1,0 +1,42 @@
+---
+
+# The deployment account created on the VPS. NewMachine/main.sh connects as
+# root with the VPS root password and installs the controller's public key for
+# this account.
+onlineuser: rtl
+
+# main.sh selects id_ed25519.pub or id_rsa.pub automatically. Set this when
+# invoking ansible-playbook directly, or pass a key file as main.sh's second
+# argument.
+deployment_public_key_file: >-
+  {{ lookup('ansible.builtin.env', 'SHARKTRUST_PUBLIC_KEY_FILE') |
+     default(lookup('ansible.builtin.env', 'HOME') + '/.ssh/id_rsa.pub', true) }}
+
+ansible_python_interpreter: /usr/bin/python3
+apt_lock_timeout: 300
+bootstrap_packages:
+  - sudo
+  - ca-certificates
+
+# Optional system-management and hardening operations. They are disabled by
+# default so that initial VPS preparation remains small and predictable.
+perform_dist_upgrade: false
+configure_unattended_upgrades: false
+configure_firewall: false
+install_fail2ban: false
+disable_root_ssh: false
+remove_conflicting_packages: false
+
+# Used only when the corresponding optional operation is enabled.
+ssh_port: 22
+ssh_service_name: ssh
+firewall_allowed_tcp_ports:
+  - "{{ ssh_port }}"
+  - 53
+  - 80
+  - 443
+firewall_allowed_udp_ports:
+  - 53
+conflicting_packages:
+  - sendmail
+  - apache2

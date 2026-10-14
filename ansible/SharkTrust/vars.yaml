@@ -1,0 +1,56 @@
+---
+
+# The username should be the same as onlineuser in ../NewMachine/vars.yaml.
+ansible_user: rtl
+ansible_python_interpreter: /usr/bin/python3
+
+# The portal administrator is saved separately with mako -credentials.
+realm: "SharkTrust Service"
+# Existing mako.conf files are preserved unless this is explicitly true.
+replace_mako_conf: false
+
+# SharkTrust name server settings.
+settingsns1: "ns1.realtimelogic.com"
+settingsns2: "ns2.realtimelogic.com"
+settingsdn: "sharktrust.realtimelogic.com"
+# Set this when the server is behind NAT and automatic detection returns a
+# private address. Leave it empty on a directly connected public server.
+settingsip: ""
+settingsacmeproduction: true
+settingsacmersa: false
+# Optional HTTPS ACME directory; empty uses the normal environment defaults.
+settingsacmedirectoryurl: ""
+settingsacmeproductionurl: ""
+settingsacmestagingurl: ""
+
+# Log email settings.
+emailserver: "your-mail-server"
+emailport: 465
+# tls or starttls
+emailconsec: "tls"
+emailuser: "no-reply@realtimelogic.com"
+emailpassword: "CHANGE_ME"
+emailuseauth: true
+emailsubject: "SharkTrust Server"
+emailfrom: "no-reply@realtimelogic.com"
+emailto: "log-file-receiver"
+emailsignature: "Sent from SharkTrust"
+
+# Set credentials before starting. True enables and starts the service.
+start_portal: false
+# Optional controller-local ZIP with www CONTENTS at its root.
+portal_local_archive: ""
+
+# The SharkTrust repository and revision.
+GitSharkTrust: https://github.com/RealTimeLogic/SharkTrust.git
+GitSharkTrustVersion: master
+SharkTrustSourceDir: /opt/SharkTrust-source
+
+# Leave empty to download mako_download_url. Set this to a controller-local
+# release archive when validating an unpublished Mako build.
+mako_local_archive: ""
+# Example after a compatible release is published:
+# mako_download_url: https://makoserver.net/download/mako.linux-x64.tar.gz
+mako_download_url: ""
+# Required value such as sha256:012345... for release validation.
+mako_archive_checksum: ""

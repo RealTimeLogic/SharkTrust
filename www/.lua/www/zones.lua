@@ -12,14 +12,14 @@ local pagesT=zWebT.pages
 local function cmsfunc(_ENV,relpath,zname,zkey)
    local path,page
    if zkey then
-      local s = request:session()
-      local auth = s and s.authenticated or false -- See login.lsp
+      local auth = app.authorized(request,zkey)
       local link = #relpath == 0 and "." or relpath
       local pageT = pagesT[link]
-      if not pageT or (not pageT.nologin and not auth) then response:sendredirect"/" end
-      page={link=link,title=pageT.title,menuT=menuT,zname=zname,zkey=zkey,authenticated=auth}
-      path=".lua/www/zones/"..pageT.path
-      response:setheader("strict-transport-security","max-age=15552000; includeSubDomains")
+      if not pageT or (not pageT.nologin and not auth) then response:sendredirect("/",false,true) return true end
+      if pageT.role and not app.authorized(request,zkey,pageT.role) then response:senderror(403) return true end
+      page={csrf=app.csrf(request),link=link,title=pageT.title,menuT=menuT,zname=zname,zkey=zkey,authenticated=auth}
+      path=(pageT.shared and ".lua/www/" or ".lua/www/zones/")..pageT.path
+      if request:issecure() then response:setheader("strict-transport-security","max-age=15552000; includeSubDomains") end
    else
       page={title="No Zone",zname=zname}
       path=".lua/www/zones/no-zone.lsp"

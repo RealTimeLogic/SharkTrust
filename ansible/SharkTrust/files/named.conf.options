@@ -1,0 +1,10 @@
+// Public authoritative DNS only. Recursion would expose an open resolver.
+options {
+    directory "/var/cache/bind";
+    recursion no;
+    allow-query { any; };
+    allow-transfer { none; };
+    listen-on { any; };
+    listen-on-v6 { any; };
+    dnssec-validation auto;
+};

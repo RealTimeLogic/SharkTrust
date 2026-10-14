@@ -1,78 +1,79 @@
-
-
-/* formatString('You have {0} cars and {1} bikes', 'two', 'three')
- * returns 'You have two cars and three bikes'
-*/
-const formatString = (str, ...params) => {
-    for (let i = 0; i < params.length; i++) {
-        var reg = new RegExp("\\{" + i + "\\}", "gm");
-        str = str.replace(reg, params[i]);
+(function () {
+  "use strict";
+  let sequence = 0;
+  let activeButton;
+  let activeDetails;
+  const csrf = document.querySelector('meta[name="csrf-token"]').content;
+  function collapse() {
+    if (activeButton) {
+      activeButton.setAttribute("aria-expanded", "false");
+      activeButton.querySelector("span").className = "arrow darrow";
     }
-    return str;
-};
-
-const details=`
-<tr id="details"><td colspan=3>
-<table class="table table-dark"><tbody>
-  <tr><td>Access:</td><td>{0}</td></tr>
-  <tr><td>Cert. Exp:</td><td>{1}</td></tr>
-  <tr><td>Details:</td><td>{2}</td></tr>
-  <tr><td>Key:</td><td>{3}</td></tr>
-</tbody></table>
-<div class="mx-auto" style="width: 200px;">{4}</div>
-</td></tr>
-`;
-
-const rembut=
-    '<button type="button" class="btn btn-danger">Remove Device</button>';
-
-
-$(function() {
-    let lastErrowE=null;
-    let lastIndex=-1;
-    $(".devtab > tr").each(function(index) {
-        const trE=$(this);
-        let name=$(".name", this).html()
-        let up=false;
-        $(".info", this).click(function() {
-            const arrowE=$("div",this);
-            if(lastErrowE) {
-                lastErrowE.removeClass("uarrow").addClass("darrow");
-                $("#details").remove();
-                lastErrowE=null;
-                if(lastIndex == index) {
-                    lastIndex=-1;
-                    return
-                }
-            }
-            $.getJSON("rpc/details.lsp", {name:name}, function(rsp) {
-                arrowE.removeClass("darrow").addClass("uarrow");
-                lastErrowE=arrowE;
-                trE.after(formatString(
-                    details,
-                    (new Date(rsp.atime*1000)).toLocaleString(),
-                    rsp.exptime?  (new Date(rsp.exptime*1000)).toLocaleString() : "Not issued",
-                    rsp.info ? rsp.info : "Not provided",
-                    rsp.dkey ? rsp.dkey : "Hidden",
-                    rsp.canrem ? rembut : ""));
-                if(rsp.canrem) {
-                    trE.next().find("button").click(function() {
-                        $.getJSON("rpc/deletedevice.lsp", {name:name},
-                          function(rsp) {
-                            if(rsp.ok) {
-                                $("#details").remove();
-                                lastErrowE=null;
-                                trE.remove();
-                            }
-                            else
-                                location.reload();
-                        });
-                    });
-                }
-                up=true;
-                lastIndex = index;
-            });
-        })
+    if (activeDetails) activeDetails.remove();
+    activeButton = activeDetails = null;
+  }
+  document.querySelectorAll(".devtab .info").forEach(function (button) {
+    button.addEventListener("click", async function () {
+      const ticket = ++sequence;
+      const same = button === activeButton;
+      collapse();
+      if (same) return;
+      activeButton = button;
+      const row = button.closest("tr");
+      const name = row.querySelector(".name").textContent;
+      try {
+        const response = await fetch("/rpc/details.lsp?name=" + encodeURIComponent(name));
+        if (!response.ok) throw new Error("Unable to load device details.");
+        const data = await response.json();
+        if (ticket !== sequence) return;
+        const details = document.createElement("tr");
+        details.className = "device-details";
+        const cell = document.createElement("td");
+        cell.colSpan = 3;
+        const table = document.createElement("table");
+        table.className = "table";
+        [
+          ["Last access", new Date(data.atime * 1000).toLocaleString()],
+          ["Certificate expires", data.exptime ? new Date(data.exptime * 1000).toLocaleString() : "Not issued"],
+          ["Details", data.info || "Not provided"]
+        ].forEach(function (values) {
+          const entry = table.insertRow();
+          values.forEach(function (value) { entry.insertCell().textContent = value; });
+        });
+        cell.appendChild(table);
+        if (data.canrem) {
+          const remove = document.createElement("button");
+          remove.className = "btn btn-danger";
+          remove.type = "button";
+          remove.textContent = "Remove device";
+          remove.addEventListener("click", async function () {
+            if (!window.confirm("Remove " + name + " and its certificate?")) return;
+            remove.disabled = true;
+            try {
+              const result = await fetch("/rpc/deletedevice.lsp", {
+                method: "POST", body: new URLSearchParams({ name: name, csrf: csrf })
+              });
+              if (!result.ok || !(await result.json()).ok) throw new Error("Unable to remove device.");
+              ++sequence;
+              collapse();
+              row.remove();
+              portalToast.success("Device removed.");
+            } catch (error) { portalToast.error(error.message); remove.disabled = false; }
+          });
+          cell.appendChild(remove);
+        }
+        details.appendChild(cell);
+        row.after(details);
+        activeDetails = details;
+        button.setAttribute("aria-expanded", "true");
+        button.querySelector("span").className = "arrow uarrow";
+      } catch (error) { if (ticket === sequence) { collapse(); portalToast.error(error.message); } }
     });
-});
-
+  });
+  document.querySelectorAll('input[name="password2"]').forEach(function (confirm) {
+    const password = confirm.form.querySelector('input[name="password"]');
+    function validate() { confirm.setCustomValidity(confirm.value === password.value ? "" : "Passwords must match."); }
+    confirm.addEventListener("input", validate);
+    password.addEventListener("input", validate);
+  });
+}());

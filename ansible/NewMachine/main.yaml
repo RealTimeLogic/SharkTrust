@@ -1,0 +1,217 @@
+---
+- name: Prepare a new Debian or Ubuntu VPS
+  hosts: all
+  become: false
+  gather_facts: false
+
+  vars_files:
+    - vars.yaml
+
+  handlers:
+    - name: Reload SSH
+      ansible.builtin.service:
+        name: "{{ ssh_service_name }}"
+        state: reloaded
+
+  pre_tasks:
+    - name: Bootstrap Python 3 when it is not installed
+      ansible.builtin.raw: |
+        if command -v python3 >/dev/null 2>&1; then
+          exit 0
+        fi
+        if ! command -v apt-get >/dev/null 2>&1; then
+          echo "This installer requires a Debian or Ubuntu VPS with apt-get." >&2
+          exit 1
+        fi
+        export DEBIAN_FRONTEND=noninteractive
+        attempt=1
+        while [ "$attempt" -le 5 ]; do
+          if apt-get update && apt-get install -y python3; then
+            echo SHARKTRUST_PYTHON_INSTALLED
+            exit 0
+          fi
+          attempt=$((attempt + 1))
+          sleep 10
+        done
+        exit 1
+      register: python_bootstrap
+      changed_when: "'SHARKTRUST_PYTHON_INSTALLED' in python_bootstrap.stdout"
+
+    - name: Gather system facts
+      ansible.builtin.setup:
+
+    - name: Verify that the VPS uses Debian or Ubuntu
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.os_family == "Debian"
+          - onlineuser != "root"
+          - onlineuser is match('^[a-z_][a-z0-9_-]*[$]?$')
+        fail_msg: >-
+          This installer requires Debian or Ubuntu and a valid non-root
+          deployment username. Detected OS family: {{ ansible_facts.os_family }};
+          configured username: {{ onlineuser }}.
+
+    - name: Check the deployment public key on the Ansible controller
+      ansible.builtin.stat:
+        path: "{{ deployment_public_key_file }}"
+      delegate_to: localhost
+      become: false
+      register: deployment_public_key_stat
+
+    - name: Verify the deployment public key
+      ansible.builtin.assert:
+        that:
+          - deployment_public_key_stat.stat.exists
+          - deployment_public_key_stat.stat.isreg
+          - deployment_public_key_stat.stat.readable
+        fail_msg: >-
+          Cannot read the deployment public key {{ deployment_public_key_file }}
+          on the Ansible controller. Pass its path as the second argument to
+          NewMachine/main.sh.
+
+  tasks:
+    - name: Update the apt package cache
+      ansible.builtin.apt:
+        update_cache: true
+        force_apt_get: true
+        cache_valid_time: 3600
+        lock_timeout: "{{ apt_lock_timeout }}"
+      register: apt_cache_update
+      retries: 5
+      delay: 10
+      until: apt_cache_update is succeeded
+
+    - name: Upgrade the operating system packages
+      ansible.builtin.apt:
+        upgrade: dist
+        force_apt_get: true
+        lock_timeout: "{{ apt_lock_timeout }}"
+      when: perform_dist_upgrade | bool
+      tags:
+        - optional
+        - upgrade
+
+    - name: Install the bootstrap packages
+      ansible.builtin.apt:
+        name: "{{ bootstrap_packages }}"
+        state: present
+        lock_timeout: "{{ apt_lock_timeout }}"
+
+    - name: Add the deployment user
+      ansible.builtin.user:
+        name: "{{ onlineuser }}"
+        shell: /bin/bash
+        create_home: true
+        state: present
+
+    - name: Add the deployment user's SSH key
+      ansible.posix.authorized_key:
+        user: "{{ onlineuser }}"
+        state: present
+        key: "{{ lookup('ansible.builtin.file', deployment_public_key_file) }}"
+
+    - name: Give the deployment user passwordless sudo access
+      ansible.builtin.copy:
+        content: "{{ onlineuser }} ALL=(ALL) NOPASSWD: ALL\n"
+        dest: "/etc/sudoers.d/{{ onlineuser }}"
+        owner: root
+        group: root
+        mode: "0440"
+        validate: "/usr/sbin/visudo -cf %s"
+
+    - name: Remove explicitly configured conflicting packages
+      ansible.builtin.apt:
+        name: "{{ conflicting_packages }}"
+        state: absent
+        lock_timeout: "{{ apt_lock_timeout }}"
+      when: remove_conflicting_packages | bool
+      tags:
+        - optional
+        - cleanup
+
+    - name: Configure unattended security upgrades
+      when: configure_unattended_upgrades | bool
+      tags:
+        - optional
+        - unattended_upgrades
+      block:
+        - name: Install unattended-upgrades
+          ansible.builtin.apt:
+            name: unattended-upgrades
+            state: present
+            lock_timeout: "{{ apt_lock_timeout }}"
+
+        - name: Install the unattended-upgrades configuration
+          ansible.builtin.template:
+            src: "{{ item }}.j2"
+            dest: "/etc/apt/apt.conf.d/{{ item }}"
+            owner: root
+            group: root
+            mode: "0644"
+          loop:
+            - 20auto-upgrades
+            - 50unattended-upgrades
+
+    - name: Configure the optional UFW firewall
+      when: configure_firewall | bool
+      tags:
+        - optional
+        - firewall
+      block:
+        - name: Install UFW
+          ansible.builtin.apt:
+            name: ufw
+            state: present
+            lock_timeout: "{{ apt_lock_timeout }}"
+
+        - name: Allow SharkTrust TCP services through UFW
+          community.general.ufw:
+            rule: allow
+            port: "{{ item | string }}"
+            proto: tcp
+          loop: "{{ firewall_allowed_tcp_ports }}"
+
+        - name: Allow SharkTrust UDP services through UFW
+          community.general.ufw:
+            rule: allow
+            port: "{{ item | string }}"
+            proto: udp
+          loop: "{{ firewall_allowed_udp_ports }}"
+
+        - name: Enable UFW with incoming traffic denied by default
+          community.general.ufw:
+            state: enabled
+            policy: deny
+            direction: incoming
+
+    - name: Configure fail2ban
+      when: install_fail2ban | bool
+      tags:
+        - optional
+        - fail2ban
+      block:
+        - name: Install fail2ban
+          ansible.builtin.apt:
+            name: fail2ban
+            state: present
+            lock_timeout: "{{ apt_lock_timeout }}"
+
+        - name: Enable and start fail2ban
+          ansible.builtin.service:
+            name: fail2ban
+            state: started
+            enabled: true
+
+    - name: Disable direct root SSH login
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^\s*#?\s*PermitRootLogin\s+'
+        line: "PermitRootLogin no"
+        state: present
+        backup: true
+        validate: "/usr/sbin/sshd -t -f %s"
+      when: disable_root_ssh | bool
+      notify: Reload SSH
+      tags:
+        - optional
+        - ssh_hardening

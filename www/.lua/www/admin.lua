@@ -4,28 +4,27 @@ local parseLspPage,templatePage
 local app,io=app,app.io -- must be a closure
 
 local zWebT=require"rwfile".json(io,".lua/www/admin.json")
-assert(zWebT, ".lua/www/zones.json parse error")
+assert(zWebT, ".lua/www/admin.json parse error")
 local menuT=zWebT.menu
 local pagesT=zWebT.pages
 
 
 local function cmsfunc(_ENV,relpath)
-   local s = request:session()
-   local auth = s and s.authenticated or false -- See login.lsp
+   local auth = app.authorized(request)
    local link = #relpath == 0 and "." or relpath
    local pageT = pagesT[link]
-   if not pageT then response:sendredirect"/" end
-   if not pageT.nologin and not auth then response:sendredirect"/login" end
-   local page={ -- Using LSP page table for a different purpose
+   if not pageT then response:sendredirect("/",false,true) return true end
+   if not pageT.nologin and not auth then response:sendredirect("/login",false,true) return true end
+   local path=(pageT.shared and ".lua/www/" or ".lua/www/admin/")..pageT.path
+   local page={
       authenticated=auth,
+      csrf=app.csrf(request),
       link=link,
-      lsp=parseLspPage(".lua/www/admin/"..pageT.path),
+      lsp=parseLspPage(path),
       menuT=menuT,
       title=pageT.title,
-      zkey=zkey,
-      zname=zname,
    }
-   response:setheader("strict-transport-security","max-age=15552000; includeSubDomains")
+   if request:issecure() then response:setheader("strict-transport-security","max-age=15552000; includeSubDomains") end
    templatePage(_ENV,path,io,page,app)
    return true
 end
